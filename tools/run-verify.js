@@ -147,6 +147,34 @@ var result = VerifyRun.run();
      /nominal/.test(pressOut) ? 'present' : pressOut.slice(0, 120), 'present');
   ok(/Alloy steel 4140/.test(pressOut) && /Aluminium 6061/.test(pressOut),
      'the press panel names both selected materials', 'present', 'present');
+
+  /*
+   * Every value row must state its unit. This exists because the units really did
+   * go missing once: they lived in a trailing table column, and when the panel was
+   * wider than its grid track that column fell off the right edge of the viewport
+   * with no scrollbar to reveal it. They now ride in the row label, and this check
+   * fails loudly if a row is ever added without one.
+   */
+  (function () {
+    var tbody = (pressOut.match(/<tbody>[\s\S]*?<\/tbody>/) || [''])[0];
+    // Value rows only: the part dividers use colspan and carry no numbers.
+    var valueRows = tbody.match(/<tr(?![^>]*class="part)[^>]*><th>[\s\S]*?<\/tr>/g) || [];
+    var noUnit = valueRows.filter(function (r) { return !/<i>[^<]+<\/i>/.test(r); });
+    ok(valueRows.length >= 11 && noUnit.length === 0,
+       'every value row in the press table states its unit',
+       valueRows.length + ' rows, ' + noUnit.length + ' without a unit',
+       'at least 11 rows, 0 without');
+
+    // The units themselves have to be the real ones, not a stray character.
+    var units = (tbody.match(/<i>([^<]+)<\/i>/g) || []).map(function (s) {
+      return s.replace(/<\/?i>/g, '');
+    });
+    var expected = ['µm', 'MPa', 'µε', '%', 'N', 'kN', 'N·m', 'N·mm'];
+    var unknown = units.filter(function (u) { return expected.indexOf(u) < 0; });
+    ok(unknown.length === 0, 'press table units are all recognised',
+       unknown.length ? 'unexpected: ' + unknown.join(', ') : units.join(' '),
+       'drawn from ' + expected.join('/'));
+  })();
   ok(/4140/.test(txt('pressPair')) && /6061/.test(txt('pressPair')),
      'the press heading shows the material pair', txt('pressPair') || 'empty',
      '4140 -> 6061');

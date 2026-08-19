@@ -182,8 +182,14 @@
   ];
 
   function fillMatSelects() {
+    /*
+     * Name only, not "name — condition". The name already carries the temper
+     * (6061-T6, 4140 Q&T) so nothing is lost, and the long form was wide enough to
+     * force the whole card past its grid track. The full condition is a row in the
+     * material table behind the detail panel.
+     */
     var opts = Materials.all().map(function (m) {
-      return { key: m.key, text: m.name + ' — ' + m.condition };
+      return { key: m.key, text: m.name };
     });
     [['pinMat', 'pinMat'], ['holeMat', 'holeMat']].forEach(function (pair) {
       var id = pair[0], key = pair[1];
@@ -300,13 +306,20 @@
 
     function vals(get) { return cases.map(get); }
 
+    /*
+     * The unit goes in the row label, not a trailing column. Forces switch between
+     * N and kN (and torque between N·mm and N·m) depending on magnitude, so the
+     * unit has to be stated per row either way -- and stating it beside the label
+     * keeps it on screen when the card is narrow, where a trailing column is the
+     * first thing to get clipped.
+     */
     function row(label, values, scale, cls) {
       var f = scale.f;
-      return '<tr' + (cls ? ' class="' + cls + '"' : '') + '><th>' + label + '</th>' +
+      return '<tr' + (cls ? ' class="' + cls + '"' : '') + '>' +
+        '<th>' + label + '<i>' + scale.unit + '</i></th>' +
         '<td class="c-off">' + f(values[0]) + '</td>' +
         '<td class="c-nom">' + f(values[1]) + '</td>' +
-        '<td class="c-off">' + f(values[2]) + '</td>' +
-        '<td class="u">' + scale.unit + '</td></tr>';
+        '<td class="c-off">' + f(values[2]) + '</td></tr>';
     }
 
     var plain = function (unit, n) {
@@ -321,11 +334,10 @@
     var nsLabel = numIn(r.nSigma);
 
     var html = '<table class="press">' +
-      '<colgroup><col style="width:33%"><col><col><col>' +
-      '<col style="width:34px"></colgroup>' +
-      '<thead><tr><th>±' + nsLabel + 'σ</th>' +
+      '<colgroup><col style="width:46%"><col><col><col></colgroup>' +
+      '<thead><tr><th></th>' +
       '<th>−' + nsLabel + 'σ</th><th>nominal</th><th>+' + nsLabel + 'σ</th>' +
-      '<th class="u"></th></tr></thead><tbody>';
+      '</tr></thead><tbody>';
 
     html += row('Interference', vals(function (c) { return c.interferenceUm; }),
                 plain('µm'));
@@ -338,7 +350,7 @@
     [['pin', 'Pin'], ['hole', 'Hole']].forEach(function (part) {
       var key = part[0];
       var mat = Materials.get(key === 'pin' ? state.pinMat : state.holeMat);
-      html += '<tr class="part is-' + key + '"><th colspan="5">' +
+      html += '<tr class="part is-' + key + '"><th colspan="4">' +
         part[1] + ' — ' + esc(mat.name) + '</th></tr>';
       html += row('Hoop strain', vals(function (c) { return c[key].microstrain; }),
                   plain('µε', 3));

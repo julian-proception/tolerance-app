@@ -97,22 +97,26 @@ body {
 
 .stage {
   display: grid;
-  grid-template-columns: 336px minmax(0, 1fr) 322px;
+  grid-template-columns: 372px minmax(0, 1fr);
   gap: 11px;
   padding: 11px 14px 14px;
   min-height: 0;
 }
-.col { display: grid; gap: 11px; min-height: 0; }
+/* min-width: 0 is load-bearing, not tidying. A grid item defaults to
+   min-width: auto, so it refuses to shrink below its min-content width -- a long
+   <select> option or a wide table then pushes the whole column past its track and
+   off the right edge of the viewport, with no scrollbar because the stage clips.
+   That is exactly how the press-fit column used to lose its unit labels. */
+.col { display: grid; gap: 11px; min-height: 0; min-width: 0; }
 /* Cards size to their content and the COLUMN carries the safety valve: if a
    control stack ever exceeds the viewport it scrolls inside its own column
    rather than being clipped, so the page itself still never scrolls. */
 .col-controls {
-  grid-template-rows: auto auto;
+  grid-auto-rows: min-content;
   align-content: start;
   overflow-y: auto; overflow-x: hidden;
 }
 .col-view { grid-template-rows: minmax(0, 1fr) auto; overflow-y: auto; overflow-x: hidden; }
-.col-press { grid-template-rows: auto minmax(0, 1fr); }
 
 .card {
   position: relative;               /* anchors the .more overlay */
@@ -167,6 +171,9 @@ body {
 }
 .ctrl-in {
   display: inline-flex; align-items: center; gap: 5px; flex: 1;
+  /* Same reason as .col: a flex item will not shrink past its min-content width
+     without this, so a long select label would widen the whole card. */
+  min-width: 0;
   background: var(--bg); border: 1px solid var(--rule);
   border-radius: 7px; padding: 0 8px;
 }
@@ -448,13 +455,21 @@ table.mini td { font-family: var(--mono); text-align: right; }
 }
 .sig input:focus { border-color: var(--accent); }
 
-/* The results table is a fixed number of rows, but the two warning paragraphs are
-   conditional. Let the results area scroll inside the card rather than overflow it,
-   so a warning appearing can never break the no-scroll guarantee. */
-.card-press-out { min-height: 0; }
-.card-press-out > #pressOut { flex: 1; min-height: 0; overflow-y: auto; }
+/* The press card now sits in the controls column, which scrolls as a whole, so the
+   detail panel expands inline instead of floating as an overlay -- an absolutely
+   positioned overlay would be clipped by the column's scroll box. */
+.card-press .more[open] > .more-body {
+  position: static; max-height: none; box-shadow: none;
+  left: auto; right: auto; bottom: auto;
+  padding: 0; border: 0; background: none;
+  margin-top: 7px;
+}
+.card-press #pressOut { margin-top: 8px; }
 
-/* The results table: one label column plus the low / nominal / high sigma cases. */
+/* The results table: one label column plus the low / nominal / high sigma cases.
+   The unit rides in the row label rather than in a trailing column -- a trailing
+   column is the first thing to fall off the right edge when space runs out, which
+   is precisely how the units went missing before. */
 table.press {
   border-collapse: collapse; width: 100%;
   font-size: 12px; table-layout: fixed;
@@ -472,14 +487,17 @@ table.press tbody th {
   font-weight: 400; color: var(--ink-soft); text-align: left;
   font-size: 11.5px;
 }
+/* The unit label, e.g. the "µm" in "Interference µm". */
+table.press tbody th i {
+  font-style: normal; font-family: var(--mono); font-size: 10.5px;
+  color: var(--ink-faint); margin-left: 4px;
+}
 table.press td {
   font-family: var(--mono); text-align: right; font-size: 12px;
 }
 /* The nominal column is the answer; the sigma columns are context. */
 table.press .c-nom { font-weight: 650; color: var(--ink); }
 table.press .c-off { color: var(--ink-soft); }
-table.press .u { color: var(--ink-faint); font-size: 10px; padding-left: 4px;
-                 width: 34px; text-align: left; font-family: var(--mono); }
 
 /* Section dividers naming which part the following rows belong to. */
 table.press tr.part th {
@@ -507,21 +525,18 @@ table.press tr.hi td { color: var(--int); font-weight: 650; }
 
 /* -------------------------------------------------- small screens: allow scroll */
 
-/* The three-column single-screen layout needs the width for it. Below that the
-   page scrolls rather than crushing a panel of numbers into illegibility. */
-@media (max-width: 1240px), (max-height: 660px) {
+/* Below this the two columns stack and the PAGE scrolls, rather than each column
+   scrolling inside a cramped viewport. The columns hand back their own overflow so
+   there is only ever one scrollbar. */
+@media (max-width: 940px), (max-height: 620px) {
   body { overflow: auto; grid-template-rows: auto auto; height: auto; }
-  .stage { grid-template-columns: 336px minmax(0, 1fr); }
-  .col-controls, .col-view, .col-press { grid-template-rows: auto auto; }
-  /* The press column drops below and lays its two cards out side by side. */
-  .col-press { grid-column: 1 / -1; grid-template-columns: 1fr 1fr;
-               grid-template-rows: auto; align-items: start; }
-  .viz-host { min-height: 300px; }
-}
-
-@media (max-width: 940px) {
   .stage { grid-template-columns: 1fr; }
-  .col-press { grid-template-columns: 1fr; }
+  .col-controls, .col-view {
+    grid-template-rows: auto auto;
+    grid-auto-rows: auto;
+    overflow: visible;
+  }
+  .viz-host { min-height: 300px; }
   .more[open] > .more-body { position: static; max-height: none; box-shadow: none;
                              left: auto; right: auto; bottom: auto; }
 }

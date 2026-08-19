@@ -25,5 +25,5 @@
 # interface rather than of a material, and lubrication, surface finish and galling
 # move it by a factor of two. That is why the app exposes it as an override.
 key,name,condition,density_kg_m3,youngs_modulus_gpa,poissons_ratio,tensile_strength_mpa,yield_strength_mpa,shear_strength_mpa,cte_um_m_k,friction_dry,source
-al6061,Aluminium 6061,T6/T651,2700,68.9,0.33,310,276,207,23.6,0.28,"ASM / MatWeb 6061-T6: E 10.0 Msi (68.9 GPa), UTS 45 ksi (310 MPa), yield 40 ksi (276 MPa), ultimate shear 30 ksi (207 MPa), CTE 23.6 um/m-K, nu 0.33"
-steel4140,Alloy steel 4140,quenched & tempered,7850,205,0.29,850,655,510,12.3,0.15,"AZoM / MatWeb AISI 4140: rho 7.85 g/cc, E 205 GPa, nu 0.27-0.30 (0.29 used), CTE 12.2-12.3 um/m-K. Q&T UTS 850-1000 MPa and yield 650-850 MPa, both taken at the conservative low end. Ultimate shear estimated as 0.60 x UTS."
+al6061,Aluminium 6061-T6,T6/T651,2700,68.9,0.33,310,276,207,23.6,0.28,"ASM / MatWeb 6061-T6: E 10.0 Msi (68.9 GPa), UTS 45 ksi (310 MPa), yield 40 ksi (276 MPa), ultimate shear 30 ksi (207 MPa), CTE 23.6 um/m-K, nu 0.33"
+steel4140,Alloy steel 4140 Q&T,quenched & tempered,7850,205,0.29,850,655,510,12.3,0.15,"AZoM / MatWeb AISI 4140: rho 7.85 g/cc, E 205 GPa, nu 0.27-0.30 (0.29 used), CTE 12.2-12.3 um/m-K. Q&T UTS 850-1000 MPa and yield 650-850 MPa, both taken at the conservative low end. Ultimate shear estimated as 0.60 x UTS."

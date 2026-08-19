@@ -28,7 +28,7 @@ State lives in the URL hash, so a fit can be bookmarked or shared:
 
 ## Verifying it
 
-The tolerance data is the whole value of this tool, so it ships with 389 checks
+The tolerance data is the whole value of this tool, so it ships with 391 checks
 against published values.
 
 ```sh
