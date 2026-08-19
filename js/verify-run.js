@@ -168,78 +168,118 @@ var VerifyRun = (function () {
     g.ok(Fits.classify(0, 0) === 'interference', 'zero width at zero',
          Fits.classify(0, 0), 'interference');
 
-    /* -------------------------------------------------- the suggestion ladder */
-    g = group('Suggestion ladder');
-    var lad = Suggest.ladder(3, ISO286.limits(3, 'm6'), { k: 3 });
-    ['interference', 'transition', 'clearance'].forEach(function (key) {
-      g.ok(lad[key].total > 0, 'a 3 mm m6 pin has at least one ' + key + ' hole option',
-           lad[key].total + ' found', 'more than 0');
+    /* ------------------------------------------------- the two hole axes */
+    g = group('Hole selection axes');
+    var pinM6 = ISO286.limits(3, 'm6');
+    var rows6 = HoleOptions.forGrade(3, 6, pinM6);
+
+    g.ok(rows6.length > 0, 'grade 6 offers hole classes at 3 mm',
+         rows6.length + ' classes', 'more than 0');
+
+    // The position slider is only intuitive if the ordering is strictly monotonic
+    // in nominal diameter -- otherwise sliding right could tighten the fit.
+    var monotonic = true, prev = -Infinity;
+    rows6.forEach(function (r) {
+      if (r.hole.mean < prev - 1e-12) monotonic = false;
+      prev = r.hole.mean;
     });
-    var labels = lad.transition.rows.concat(lad.interference.rows, lad.clearance.rows)
-      .map(function (r) { return r.label; });
-    g.ok(labels.indexOf('JS6') >= 0, "the brief's JS6 appears in the ladder",
-         labels.indexOf('JS6') >= 0 ? 'present' : 'MISSING', 'present');
-    var ordered = true;
-    ['interference', 'transition', 'clearance'].forEach(function (key) {
-      var rows = lad[key].rows;
-      for (var i = 1; i < rows.length; i++) {
-        if (rows[i].wc.mean > rows[i - 1].wc.mean + 1e-9) ordered = false;
+    g.ok(monotonic, 'position axis is monotonic in nominal diameter at 3 mm',
+         rows6[0].hole.mean.toFixed(4) + ' -> ' +
+           rows6[rows6.length - 1].hole.mean.toFixed(4) + ' mm', 'ascending');
+
+    // Sliding right must loosen the fit: interference falls as the hole grows.
+    var falling = true, prevInt = Infinity;
+    rows6.forEach(function (r) {
+      if (r.wc.mean > prevInt + 1e-12) falling = false;
+      prevInt = r.wc.mean;
+    });
+    g.ok(falling, 'interference decreases monotonically along the position axis',
+         rows6[0].wc.mean + ' -> ' + rows6[rows6.length - 1].wc.mean + ' um',
+         'descending');
+
+    var jsIdx = HoleOptions.indexOf(rows6, 'JS6');
+    g.ok(jsIdx >= 0, "the brief's JS6 is on the grade 6 position axis",
+         jsIdx >= 0 ? 'index ' + jsIdx : 'MISSING', 'present');
+    g.ok(jsIdx >= 0 && rows6[jsIdx].wc.mean === 5 && rows6[jsIdx].wc.min === -1 &&
+         rows6[jsIdx].wc.max === 11,
+         'JS6 on the axis still carries the brief\'s numbers',
+         jsIdx >= 0 ? rows6[jsIdx].wc.mean + ', ' + rows6[jsIdx].wc.min + '..' +
+           rows6[jsIdx].wc.max : 'n/a', '5, -1..11');
+    g.ok(jsIdx >= 0 && Math.abs(rows6[jsIdx].hole.mean - 3) < 1e-12,
+         'JS6 sits at a nominal diameter of exactly 3.0000 mm',
+         jsIdx >= 0 ? rows6[jsIdx].hole.mean.toFixed(4) : 'n/a', '3.0000');
+
+    // Every row must be filed under the category its own numbers imply.
+    var wrong = rows6.filter(function (r) {
+      return Fits.classify(r.wc.min, r.wc.max) !== r.fit;
+    }).length;
+    g.ok(wrong === 0, 'every row on the axis is classified from its own numbers',
+         wrong + ' mismatched', '0 mismatched');
+
+    // The painted track must tile the axis exactly -- no gaps, no overlap, or the
+    // coloured regions would not line up with the slider positions.
+    var bd = HoleOptions.bands(rows6);
+    var covered = 0, contiguous = true, at = 0;
+    bd.forEach(function (b) {
+      if (b.from !== at) contiguous = false;
+      covered += b.to - b.from + 1;
+      at = b.to + 1;
+    });
+    g.ok(contiguous && covered === rows6.length,
+         'track bands tile the position axis exactly',
+         covered + ' of ' + rows6.length + ' covered, contiguous ' + contiguous,
+         rows6.length + ' covered, contiguous true');
+    var mixed = bd.filter(function (b) {
+      for (var i = b.from; i <= b.to; i++) {
+        if (rows6[i].fit !== b.fit) return true;
       }
-    });
-    g.ok(ordered, 'each group is ordered by descending nominal interference',
-         ordered ? 'ordered' : 'OUT OF ORDER', 'ordered');
-    // Every row's declared category must match its own numbers.
-    var misfiled = 0;
-    ['interference', 'transition', 'clearance'].forEach(function (key) {
-      lad[key].rows.forEach(function (r) {
-        if (Fits.classify(r.wc.min, r.wc.max) !== key) misfiled++;
+      return false;
+    }).length;
+    g.ok(mixed === 0, 'no track band contains a mixed fit category',
+         mixed + ' mixed', '0 mixed');
+
+    // Changing grade must hold the nominal diameter roughly steady rather than
+    // jumping to an arbitrary class.
+    var rows7 = HoleOptions.forGrade(3, 7, pinM6);
+    var near = HoleOptions.nearestIndex(rows7, rows6[jsIdx].meanDev);
+    g.ok(Math.abs(rows7[near].meanDev - rows6[jsIdx].meanDev) <= 3,
+         'switching grade 6 -> 7 holds the nominal within 3 um',
+         rows7[near].label + ' at ' + rows7[near].meanDev + ' um',
+         'within 3 um of ' + rows6[jsIdx].meanDev);
+
+    g.ok(HoleOptions.indexOf(rows6, 'NOPE9') === -1,
+         'indexOf reports -1 for a class not on the axis', '-1', '-1');
+
+    var grades3 = HoleOptions.gradesFor(3);
+    var sortedG = grades3.slice().sort(function (a, b) { return a - b; });
+    g.ok(grades3.join() === sortedG.join() && grades3.length > 2,
+         'gradesFor returns ascending grades', grades3.join(' '), 'ascending');
+
+    // A 25 mm h6 pin must be able to reach all three categories somewhere.
+    var reach = {};
+    HoleOptions.gradesFor(25).forEach(function (gr) {
+      HoleOptions.forGrade(25, gr, ISO286.limits(25, 'h6')).forEach(function (r) {
+        reach[r.fit] = true;
       });
     });
-    g.ok(misfiled === 0, 'no row is filed under the wrong category',
-         misfiled + ' misfiled', '0 misfiled');
-    /*
-     * Trimming must keep both ends of a group. If it kept only the head, the
-     * loosest transition options -- the barely-clearance fits an engineer most
-     * often wants -- would vanish from the list.
-     */
-    var trans = lad.transition;
-    g.ok(trans.rows[trans.rows.length - 1].wc.mean ===
-           Math.min.apply(null, trans.rows.map(function (r) { return r.wc.mean; })),
-         'the loosest transition option survives trimming',
-         trans.rows[trans.rows.length - 1].label + ' at ' +
-           trans.rows[trans.rows.length - 1].wc.mean + ' um', 'the minimum');
-    var sumSkipped = 0;
-    trans.rows.forEach(function (r) { sumSkipped += (r.skippedBefore || 0); });
-    g.ok(sumSkipped === trans.hidden,
-         'the elision markers account for every hidden class',
-         sumSkipped + ' marked vs ' + trans.hidden + ' hidden', 'equal');
-    // With a coarse pin the clearance group is large; its tightest entry (the one
-    // closest to line-to-line) must be present.
-    var ladH = Suggest.ladder(25, ISO286.limits(25, 'h6'), { k: 3 });
-    g.ok(ladH.clearance.rows[0].wc.mean ===
-           Math.max.apply(null, ladH.clearance.rows.map(function (r) { return r.wc.mean; })),
-         'the tightest clearance option survives trimming',
-         ladH.clearance.rows[0].label, 'the maximum');
-    // H7/h6 must land in the clearance group at 25 mm; H7/p6 in interference.
-    var l25 = Suggest.ladder(25, ISO286.limits(25, 'h6'), { k: 3 });
-    g.ok(l25.clearance.rows.some(function (r) { return r.label === 'H7'; }),
-         'H7 is offered as a clearance hole for a 25 mm h6 pin',
-         'present', 'present');
-    var l25p = Suggest.ladder(25, ISO286.limits(25, 'p6'), { k: 3 });
-    g.ok(l25p.interference.rows.some(function (r) { return r.label === 'H7'; }),
-         'H7 is offered as an interference hole for a 25 mm p6 pin',
-         'present', 'present');
-    g.ok(l25p.interference.rows.some(function (r) {
-           return r.label === 'H7' && r.preferred;
-         }), 'H7/p6 carries the ISO preferred-fit badge', 'badged', 'badged');
+    ['interference', 'transition', 'clearance'].forEach(function (key) {
+      g.ok(reach[key], 'a 25 mm h6 pin can reach a ' + key + ' fit',
+           reach[key] ? 'reachable' : 'UNREACHABLE', 'reachable');
+    });
+
+    g.ok(HoleOptions.isPreferred('H7', 'p6'), 'H7/p6 is flagged as an ISO preferred fit',
+         'preferred', 'preferred');
+    g.ok(!HoleOptions.isPreferred('U8', 'm6'), 'U8/m6 is not flagged preferred',
+         'not preferred', 'not preferred');
 
     /* ------------------------------------------ rendered SVG must be sane */
     if (typeof Viz !== 'undefined') {
       g = group('Rendered SVG output');
       var pin3 = ISO286.limits(3, 'm6'), hole3 = ISO286.limits(3, 'JS6');
       var stats3 = Fits.rss(pin3, hole3, { k: 3 });
-      var E = Viz.autoExaggeration(3, pin3, hole3);
-      g.ok(isFinite(E) && E > 1, 'auto exaggeration is a sensible finite factor',
+      var ex3 = HoleOptions.precisionExtremes(3);
+      var E = Viz.pinnedExaggeration(3, ex3.lo, ex3.hi);
+      g.ok(isFinite(E) && E > 1, 'pinned exaggeration is a sensible finite factor',
            'x' + Math.round(E), 'finite and above 1');
       var views = {
         'circle view': Viz.circleView({ basic: 3, pin: pin3, hole: hole3, exaggeration: E }),
@@ -288,10 +328,126 @@ var VerifyRun = (function () {
            'sigma ' + flatStats.sigma + ', p ' + flatStats.pInterference,
            'finite');
 
+      /* ------------------------------------------- exaggeration stability */
+      /*
+       * The factor must NOT be derived from the selected classes. If it is, the
+       * drawing rescales on every slider step and the circles shift under the
+       * cursor while you are trying to compare them.
+       */
+      g = group('Exaggeration stability');
+      var exA = HoleOptions.precisionExtremes(3);
+      var refAt3 = Viz.pinnedExaggeration(3, exA.lo, exA.hi);
+      g.ok(Viz.pinnedExaggeration(3, exA.lo, exA.hi) === refAt3,
+           'the pinned factor depends only on the diameter',
+           'x' + refAt3, 'repeatable');
+
+      // Walk the entire grade 6 position axis: the factor applied must stay put.
+      var axis6 = HoleOptions.forGrade(3, 6, pinM6);
+      var applied = axis6.map(function (r) {
+        return Viz.clampExaggeration(3, pinM6, r.hole, refAt3);
+      });
+      var unchanged = applied.filter(function (v) { return v === refAt3; }).length;
+      g.ok(unchanged === axis6.length,
+           'the factor is identical at every grade 6 position at 3 mm',
+           unchanged + ' of ' + axis6.length + ' positions unchanged',
+           'all ' + axis6.length);
+      // At larger sizes the most offset classes can still force a reduction. It
+      // must stay a nudge, never the several-fold jump the old scheme produced.
+      var exB = HoleOptions.precisionExtremes(25);
+      var ref25 = Viz.pinnedExaggeration(25, exB.lo, exB.hi);
+      var pin25 = ISO286.limits(25, 'm6');
+      /*
+       * Across the precision grades -- the range this tool is actually used in --
+       * the factor must never move at all. At the coarse end (IT11, IT12, where an
+       * A12 hole sits hundreds of micrometres off basic) a reduction is
+       * unavoidable: without it the drawing would run off the canvas. The clamp
+       * therefore still applies there, and the on-screen label reports it.
+       */
+      var worst = 1, worstAt = '';
+      [5, 6, 7].forEach(function (gr) {
+        if (HoleOptions.gradesFor(25).indexOf(gr) < 0) return;
+        HoleOptions.forGrade(25, gr, pin25).forEach(function (r) {
+          var e = Viz.clampExaggeration(25, pin25, r.hole, ref25);
+          if (ref25 / e > worst) { worst = ref25 / e; worstAt = r.label; }
+        });
+      });
+      g.ok(worst === 1,
+           'IT5-IT7 at 25 mm never force a reduction, at any position',
+           worst === 1 ? 'never clamped' : 'x' + worst.toFixed(2) + ' at ' + worstAt,
+           'never clamped');
+      // The IT5-IT7 guarantee must hold at every size, not just at 25 mm.
+      var clampedAt = [];
+      [1, 3, 8, 25, 50, 120, 500].forEach(function (size) {
+        var exN = HoleOptions.precisionExtremes(size);
+        var ref = Viz.pinnedExaggeration(size, exN.lo, exN.hi);
+        var pn = ISO286.limits(size, 'h6');
+        [5, 6, 7].forEach(function (gr) {
+          if (HoleOptions.gradesFor(size).indexOf(gr) < 0) return;
+          HoleOptions.forGrade(size, gr, pn).forEach(function (r) {
+            if (Viz.clampExaggeration(size, pn, r.hole, ref) !== ref) {
+              clampedAt.push(r.label + '@' + size + 'mm');
+            }
+          });
+        });
+      });
+      g.ok(clampedAt.length === 0,
+           'IT5-IT7 never clamp at 1, 3, 8, 25, 50, 120 or 500 mm',
+           clampedAt.length ? clampedAt.slice(0, 5).join(', ') : 'never clamped',
+           'never clamped');
+
+      // The coarse grades still have to stay on the canvas.
+      var coarseOut = [];
+      HoleOptions.gradesFor(25).forEach(function (gr) {
+        HoleOptions.forGrade(25, gr, pin25).forEach(function (r) {
+          var e = Viz.clampExaggeration(25, pin25, r.hole, ref25);
+          var sv = Viz.circleView({ basic: 25, pin: pin25, hole: r.hole, exaggeration: e });
+          var re3 = /<circle cx="200" cy="200" r="([\d.]+)"[^>]*stroke-width="([\d.]+)"/g, m3;
+          while ((m3 = re3.exec(sv))) {
+            var rr3 = parseFloat(m3[1]), ww3 = parseFloat(m3[2]);
+            if (rr3 - ww3 / 2 < -0.01 || rr3 + ww3 / 2 > 200.01) coarseOut.push(r.label);
+          }
+        });
+      });
+      g.ok(coarseOut.length === 0,
+           'every class at every grade still draws inside the box after clamping',
+           coarseOut.length ? coarseOut.slice(0, 5).join(', ') : 'all inside', 'all inside');
+
+      // Where it does reduce, it may only ever reduce -- never grow past the pin.
+      var grew = applied.filter(function (v) { return v > refAt3 + 1e-9; }).length;
+      g.ok(grew === 0, 'the clamp only ever reduces the pinned factor',
+           grew + ' grew', '0 grew');
+
+      // And the clamp must actually keep the drawing inside the box.
+      var outOfBox = [];
+      axis6.forEach(function (r, i) {
+        var svg = Viz.circleView({ basic: 3, pin: pinM6, hole: r.hole,
+                                   exaggeration: applied[i] });
+        var re2 = /<circle cx="200" cy="200" r="([\d.]+)"[^>]*stroke-width="([\d.]+)"/g, mm2;
+        while ((mm2 = re2.exec(svg))) {
+          var rr = parseFloat(mm2[1]), ww = parseFloat(mm2[2]);
+          if (rr - ww / 2 < 0 || rr + ww / 2 > 200) outOfBox.push(r.label);
+        }
+      });
+      g.ok(outOfBox.length === 0,
+           'every grade 6 class draws inside the box at the pinned factor',
+           outOfBox.length ? outOfBox.join(', ') : 'all inside', 'all inside');
+
+      // A grade sweep must not send the factor wandering either, and the extreme
+      // U6 case must still be drawn the right way round.
+      var u6 = ISO286.limits(3, 'U6');
+      var eU6 = Viz.clampExaggeration(3, pinM6, u6, refAt3);
+      g.ok(eU6 === refAt3,
+           'even U6, the most offset grade 6 class at 3 mm, needs no reduction',
+           'x' + Math.round(eU6) + ' from x' + refAt3, 'unchanged');
+      var svgU6 = Viz.circleView({ basic: 3, pin: pinM6, hole: u6, exaggeration: eU6 });
+      g.ok(!/r="-/.test(svgU6), 'no negative radius is emitted for U6 at 3 mm',
+           /r="-/.test(svgU6) ? 'NEGATIVE' : 'all positive', 'all positive');
+
       /* ------------------------------------------- circle-view geometry, checked
          against hand-computed values rather than eyeballed. At 3 mm with the
-         basic radius drawn at 108 px, true scale is 108/1.5 = 72 px/mm, so at
-         x160 exaggeration one micrometre of diameter is 72*160/2000 = 5.76 px. */
+         basic radius drawn at 104 px, true scale is 104/1.5 = 69.3333 px/mm, so at
+         x160 exaggeration one micrometre of diameter is 69.3333*160/2000 =
+         5.546667 px. */
       g = group('Circle-view geometry');
       var rings = [];
       var reRing = /<circle cx="200" cy="200" r="([\d.]+)"[^>]*stroke-width="([\d.]+)"/g, mR;
@@ -306,12 +462,12 @@ var VerifyRun = (function () {
         g.ok(found, label, found ? 'r=' + r + ' w=' + w : 'not drawn',
              'r=' + r + ' w=' + w);
       }
-      // hole JS6 spans -3..+3 um  ->  90.72..125.28 px  ->  r 108.00, width 34.56
-      hasRing(108.00, 34.56, 'hole JS6 band sits centred on the basic radius');
-      // pin m6 spans +2..+8 um    -> 119.52..154.08 px  ->  r 136.80, width 34.56
-      hasRing(136.80, 34.56, 'pin m6 band sits outboard of the basic radius');
-      // overlap is +2..+3 um      -> 119.52..125.28 px  ->  r 122.40, width 5.76
-      hasRing(122.40, 5.76, 'overlap ring covers only the +2..+3 um region');
+      // hole JS6 spans -3..+3 um  ->  87.36..120.64 px  ->  r 104.00, width 33.28
+      hasRing(104.00, 33.28, 'hole JS6 band sits centred on the basic radius');
+      // pin m6 spans +2..+8 um    -> 115.09..148.37 px  ->  r 131.73, width 33.28
+      hasRing(131.73, 33.28, 'pin m6 band sits outboard of the basic radius');
+      // overlap is +2..+3 um      -> 115.09..120.64 px  ->  r 117.87, width 5.55
+      hasRing(117.87, 5.55, 'overlap ring covers only the +2..+3 um region');
 
       var maxR = rings.reduce(function (a, x) { return Math.max(a, x.r + x.w / 2); }, 0);
       g.ok(maxR < 200, 'nothing is drawn outside the 400x400 viewBox',

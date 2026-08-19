@@ -1,5 +1,11 @@
 /*
  * app.js — state, rendering and event wiring.
+ *
+ * The hole is chosen along two independent axes rather than by typing a class:
+ *   gradeSlider -> tolerance band WIDTH  (the IT number)
+ *   posSlider   -> band POSITION, i.e. the nominal diameter, which is what moves
+ *                  the fit between interference, transition and clearance
+ * The ISO class is the OUTPUT of those two, shown in the card heading.
  */
 (function () {
   'use strict';
@@ -7,9 +13,13 @@
   var $ = function (id) { return document.getElementById(id); };
 
   var state = {
-    dia: 3, pinClass: 'm6', holeClass: 'JS6',
+    dia: 3,
+    pinLetter: 'm', pinGrade: 6,
     useCustom: false, customUpper: 8, customLower: 2,
-    k: 3, shift: 0, target: 0, exagSlider: 50
+    holeLetter: 'JS', holeGrade: 6,
+    vizMode: 'dia',
+    k: 3, shift: 0, target: 0, exagSlider: 50,
+    exagRef: null, exagBasis: null   // pinned factor and the diameter it belongs to
   };
 
   /* ------------------------------------------------------------- formatting */
@@ -22,286 +32,266 @@
     if (v <= 0) return '0%';
     if (v > 0.9999) return '>99.99%';
     if (v < 0.0001) return '<0.01%';
-    return (v * 100).toFixed(v > 0.01 && v < 0.99 ? 1 : 3) + '%';
+    return (v * 100).toFixed(v > 0.01 && v < 0.99 ? 2 : 3) + '%';
   }
   function esc(s) {
     return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   }
 
-  /* ---------------------------------------------------------- limits objects */
+  /* ----------------------------------------------------------- limits objects */
 
-  /** Pin limits, either from the ISO class or from custom deviations. */
   function pinLimits() {
     if (state.useCustom) {
-      var up = state.customUpper, lo = state.customLower;
-      if (!(up >= lo)) throw new Error('The upper deviation must be at least the lower deviation.');
-      var d = state.dia;
+      var up = state.customUpper, lo = state.customLower, d = state.dia;
+      if (!(up >= lo)) throw new Error('Pin upper deviation must be at least the lower.');
       return {
-        basic: d, min: d + lo / 1000, max: d + up / 1000,
-        mean: d + (up + lo) / 2000,
+        basic: d, min: d + lo / 1000, max: d + up / 1000, mean: d + (up + lo) / 2000,
         tolerance: (up - lo) / 1000, toleranceUm: up - lo,
         upper: up, lower: lo, label: 'custom', kind: 'shaft',
         grade: null, letter: null, it: null
       };
     }
-    return ISO286.limits(state.dia, state.pinClass);
+    return ISO286.limits(state.dia, state.pinLetter + state.pinGrade);
   }
-
-  function holeLimits() { return ISO286.limits(state.dia, state.holeClass); }
 
   function rssOpts() { return { k: state.k, meanShift: state.shift }; }
 
-  /* --------------------------------------------------------------- rendering */
+  /* ---------------------------------------------------------------- readouts */
 
-  function summaryHtml(lim) {
-    var name = lim.label === 'custom' ? 'custom' : lim.label;
-    return '<span><b>' + esc(name) + '</b></span>' +
-      '<span>' + um(lim.upper) + ' / ' + um(lim.lower) + ' µm</span>' +
-      '<span>' + mm(lim.min) + ' – ' + mm(lim.max) + ' mm</span>' +
-      '<span>mean <b>' + mm(lim.mean) + '</b></span>' +
-      '<span>T ' + Viz.fmt(lim.toleranceUm, 1) + ' µm</span>';
+  /** Compact readout: deviations, then max / nominal / min diameter. */
+  function readout(lim) {
+    return '' +
+      '<span class="k">deviation</span>' +
+      '<span class="v dev">' + um(lim.upper) + ' / ' + um(lim.lower) + ' µm</span>' +
+      '<span class="sep"></span>' +
+      '<span class="k">max Ø</span><span class="v">' + mm(lim.max) + ' mm</span>' +
+      '<span class="k">nominal Ø</span><span class="v nom">' + mm(lim.mean) + ' mm</span>' +
+      '<span class="k">min Ø</span><span class="v">' + mm(lim.min) + ' mm</span>';
   }
 
-  function limitTable(lim, which) {
-    var cls = which === 'pin' ? 't-pin' : 't-hole';
+  /** The detail overlay: the things most users do not need on screen. */
+  function moreTable(lim) {
     var rows = [
       ['Tolerance class', esc(lim.label)],
-      ['IT grade', lim.grade ? ('IT' + lim.grade + ' = ' + Viz.fmt(lim.it, 1) + ' µm') : '—'],
-      ['Upper deviation', um(lim.upper) + ' µm'],
-      ['Lower deviation', um(lim.lower) + ' µm'],
       ['Basic size', mm(lim.basic) + ' mm'],
-      ['Mean size', mm(lim.mean) + ' mm', true],
-      ['Minimum size', mm(lim.min) + ' mm'],
-      ['Maximum size', mm(lim.max) + ' mm'],
-      ['Tolerance width', Viz.fmt(lim.toleranceUm, 1) + ' µm']
+      ['Nominal (mean) size', mm(lim.mean) + ' mm'],
+      ['Tolerance width', Viz.fmt(lim.toleranceUm, 1) + ' µm'],
+      ['IT grade', lim.grade ? 'IT' + lim.grade + ' = ' + Viz.fmt(lim.it, 1) + ' µm' : '—']
     ];
-    var hint = lim.grade ? Fits.processHint(lim.grade) : '';
-    var html = '<table class="t ' + cls + '"><caption>' +
-      (which === 'pin' ? 'Pin (shaft)' : 'Hole') + '</caption><tbody>';
+    if (lim.grade) rows.push(['Typically held by', Fits.processHint(lim.grade)]);
+    var html = '<table class="mini"><tbody>';
     rows.forEach(function (r) {
-      html += '<tr' + (r[2] ? ' class="hi"' : '') + '><th>' + r[0] + '</th><td>' + r[1] + '</td></tr>';
+      html += '<tr><th>' + r[0] + '</th><td>' + r[1] + '</td></tr>';
     });
-    if (hint) {
-      html += '<tr><th>Typically held by</th><td class="wide">' + esc(hint) + '</td></tr>';
-    }
-    html += '</tbody></table>';
+    html += '</tbody></table>' +
+      '<p class="fine"><strong>Basic size</strong> is the stated diameter the ' +
+      'deviations apply to; <strong>nominal</strong> here is ' +
+      'the middle of the tolerance band, which is where the solid circle is drawn.</p>';
     return html;
   }
 
-  /** Phrase the interference the way the brief asks for it. */
-  function describe(wc) {
-    var meanWord = wc.mean >= 0 ? 'interference' : 'clearance';
-    var meanVal = Viz.fmt(Math.abs(wc.mean), 1);
-    var parts = 'Nominal ' + meanWord + ' <span class="n">' + meanVal + ' µm</span>';
+  /* ----------------------------------------------------------- pin dropdowns */
 
-    var maxTxt, minTxt;
-    if (wc.max >= 0) {
-      maxTxt = 'as much as <span class="n">' + Viz.fmt(wc.max, 1) + ' µm</span> interference';
-    } else {
-      maxTxt = 'at tightest still <span class="n">' + Viz.fmt(-wc.max, 1) + ' µm</span> clearance';
-    }
-    if (wc.min >= 0) {
-      minTxt = 'and as little as <span class="n">' + Viz.fmt(wc.min, 1) + ' µm</span>';
-    } else {
-      minTxt = 'and as little as <span class="n">' + um(wc.min) +
-               ' µm</span> — that is <span class="n">' + Viz.fmt(-wc.min, 1) +
-               ' µm</span> of clearance';
-    }
-    return parts + ' — ' + maxTxt + ', ' + minTxt + '.';
+  function fillPinSelects() {
+    var letters;
+    try { letters = ISO286.letters(state.dia, 'shaft'); }
+    catch (e) { return; }
+    if (letters.indexOf(state.pinLetter) < 0) state.pinLetter = 'h';
+
+    $('pinLetter').innerHTML = letters.map(function (l) {
+      return '<option value="' + l + '"' +
+        (l === state.pinLetter ? ' selected' : '') + '>' + l + '</option>';
+    }).join('');
+
+    var grades = ISO286.gradesForLetter(state.dia, state.pinLetter, 'shaft');
+    if (grades.indexOf(state.pinGrade) < 0) state.pinGrade = grades[Math.floor(grades.length / 2)];
+    $('pinGrade').innerHTML = grades.map(function (g) {
+      return '<option value="' + g + '"' +
+        (g === state.pinGrade ? ' selected' : '') + '>' + g + '</option>';
+    }).join('');
   }
 
-  function renderLadder(pin) {
-    var groups;
-    try {
-      groups = Suggest.ladder(state.dia, pin, rssOpts());
-    } catch (e) {
-      $('ladder').innerHTML = '<p class="grp-empty">' + esc(e.message) + '</p>';
-      return;
+  /* --------------------------------------------------------- hole two axes */
+
+  /**
+   * Sync the two hole sliders to the current size, then resolve the class.
+   * Returns { rows, index, hole } or throws.
+   */
+  function resolveHole(pin) {
+    var grades = HoleOptions.gradesFor(state.dia);
+    if (grades.indexOf(state.holeGrade) < 0) {
+      state.holeGrade = grades[Math.min(1, grades.length - 1)];
     }
-    var order = [
-      ['interference', 'Interference'],
-      ['transition', 'Transition'],
-      ['clearance', 'Clearance']
-    ];
-    var html = '';
-    order.forEach(function (o) {
-      var key = o[0], g = groups[key];
-      html += '<div class="grp grp-' + key + '"><div class="grp-head">' + o[1] +
-              '<span class="count">' + g.total + '</span></div>';
-      if (!g.rows.length) {
-        html += '<p class="grp-empty">No hole class in the evaluated set gives a ' +
-                key + ' fit with this pin.</p>';
-      }
-      g.rows.forEach(function (r) {
-        if (r.skippedBefore) {
-          html += '<p class="grp-more">⋯ ' + r.skippedBefore + ' looser ' +
-                  (r.skippedBefore === 1 ? 'class' : 'classes') + ' between</p>';
-        }
-        var sel = (r.label === state.holeClass) ? ' is-sel' : '';
-        html += '<button type="button" class="row' + sel + '" data-cls="' + esc(r.label) + '">' +
-          '<span class="row-cls">' + esc(r.label) +
-          (r.preferred ? '<span class="badge">preferred</span>' : '') + '</span>' +
-          '<span class="row-num">' + um(r.wc.mean) + ' µm nom.</span>' +
-          '<span class="row-sub">' + um(r.wc.min) + ' … ' + um(r.wc.max) +
-          ' µm · ' + pct(r.rss.pInterference) + ' interference</span>' +
-          '</button>';
+    var gi = grades.indexOf(state.holeGrade);
+    $('gradeSlider').max = String(grades.length - 1);
+    $('gradeSlider').value = String(gi);
+
+    var rows = HoleOptions.forGrade(state.dia, state.holeGrade, pin);
+    var idx = HoleOptions.indexOf(rows, state.holeLetter + state.holeGrade);
+    if (idx < 0) {
+      // The letter does not exist at this grade. Hold the nominal diameter as
+      // close as possible instead of jumping to an arbitrary class.
+      idx = HoleOptions.nearestIndex(rows, state.lastMeanDev || 0);
+      state.holeLetter = rows[idx].letter;
+    }
+    state.lastMeanDev = rows[idx].meanDev;
+
+    $('posSlider').max = String(rows.length - 1);
+    $('posSlider').value = String(idx);
+
+    // Paint the track so the three regions are visible before sliding into them.
+    $('posTrack').innerHTML = HoleOptions.bands(rows).map(function (b) {
+      var w = (b.to - b.from + 1) / rows.length * 100;
+      return '<i class="b-' + b.fit + '" style="width:' + w.toFixed(3) + '%"></i>';
+    }).join('');
+
+    return { rows: rows, index: idx, hole: rows[idx].hole, row: rows[idx],
+             grades: grades };
+  }
+
+  /* ----------------------------------------------------------- visualisation */
+
+  /**
+   * The factor is pinned to the diameter, so moving either tolerance slider does
+   * not rescale the drawing. It is only re-derived when the diameter changes, and
+   * clamped at draw time where a very offset class would otherwise run outside the
+   * box (or through the centre).
+   */
+  function exaggeration(pin, hole) {
+    if (state.exagBasis !== state.dia) {
+      var ex = HoleOptions.precisionExtremes(state.dia);
+      state.exagRef = Viz.pinnedExaggeration(state.dia, ex.lo, ex.hi);
+      state.exagBasis = state.dia;
+    }
+    var wanted = state.exagRef * Math.pow(10, (state.exagSlider - 50) / 25);
+    return Viz.clampExaggeration(state.dia, pin, hole, wanted);
+  }
+
+  function renderViz(pin, hole) {
+    var diaMode = state.vizMode === 'dia';
+    $('vizDia').className = diaMode ? 'on' : '';
+    $('vizZone').className = diaMode ? '' : 'on';
+    $('vizFoot').hidden = !diaMode;
+
+    if (diaMode) {
+      var E = exaggeration(pin, hole);
+      $('vizHost').innerHTML = Viz.circleView({
+        basic: state.dia, pin: pin, hole: hole, exaggeration: E
       });
-      if (g.hidden > 0) {
-        html += '<p class="grp-more">' + g.hidden + ' of ' + g.total +
-                ' not shown; the tightest and loosest are kept.</p>';
-      }
-      html += '</div>';
-    });
-    $('ladder').innerHTML = html;
-
-    Array.prototype.forEach.call($('ladder').querySelectorAll('.row'), function (b) {
-      b.addEventListener('click', function () {
-        state.holeClass = b.getAttribute('data-cls');
-        $('holeClass').value = state.holeClass;
-        render();
+      $('trueScaleView').innerHTML = Viz.trueScaleView({
+        basic: state.dia, pin: pin, hole: hole
       });
-    });
+      $('exagOut').textContent = '×' + Math.round(E);
+      $('vizLegend').innerHTML =
+        '<span><i class="sw sw-pin-line"></i>pin nominal</span>' +
+        '<span><i class="sw sw-pin-band"></i>pin tolerance</span>' +
+        '<span><i class="sw sw-hole-line"></i>hole nominal</span>' +
+        '<span><i class="sw sw-hole-band"></i>hole tolerance</span>' +
+        '<span><i class="sw sw-overlap"></i>overlap — fit may go either way</span>';
+    } else {
+      $('vizHost').innerHTML = Viz.zoneChart({
+        basic: state.dia, pin: pin, hole: hole
+      });
+      $('vizLegend').innerHTML =
+        '<span>Deviations in µm about the basic size. Dashed line is the ' +
+        'nominal (mid-tolerance) diameter.</span>';
+    }
   }
 
-  function statsTable(stats) {
-    var wc = stats.worstCase;
-    var html = '<table class="t"><caption>Worst case (arithmetic)</caption><tbody>' +
-      '<tr><th>Maximum interference</th><td>' + um(wc.max) + ' µm</td></tr>' +
-      '<tr class="hi"><th>Nominal interference</th><td>' + um(wc.mean) + ' µm</td></tr>' +
-      '<tr><th>Minimum interference</th><td>' + um(wc.min) + ' µm</td></tr>' +
-      '<tr><th>Total spread</th><td>' + Viz.fmt(wc.spread, 1) + ' µm</td></tr>' +
-      '</tbody></table>';
-
-    html += '<table class="t"><caption>RSS statistical</caption><tbody>' +
-      '<tr><th>σ pin</th><td>' + Viz.fmt(stats.sigmaPin, 2) + ' µm</td></tr>' +
-      '<tr><th>σ hole</th><td>' + Viz.fmt(stats.sigmaHole, 2) + ' µm</td></tr>' +
-      '<tr class="hi"><th>σ interference (RSS)</th><td>' + Viz.fmt(stats.sigma, 2) + ' µm</td></tr>' +
-      '<tr><th>Mean interference</th><td>' + um(stats.mean) + ' µm</td></tr>' +
-      '<tr class="hi"><th>±' + Viz.fmt(stats.k, 1) + 'σ range</th><td>' +
-        um(stats.min) + ' … ' + um(stats.max) + ' µm</td></tr>' +
-      '<tr><th>RSS half-width</th><td>' + Viz.fmt(stats.halfWidth, 2) + ' µm</td></tr>' +
-      '</tbody></table>';
-
-    html += '<table class="t"><caption>Predicted outcome</caption><tbody>' +
-      '<tr class="hi"><th>Assemblies with interference</th><td>' +
-        pct(stats.pInterference) + '</td></tr>' +
-      '<tr><th>Assemblies with clearance</th><td>' + pct(stats.pClearance) + '</td></tr>' +
-      '<tr><th>Fit category</th><td class="wide">' +
-        Fits.FIT_INFO[wc.fit].name + '</td></tr>' +
-      '</tbody></table>';
-    return html;
-  }
+  /* ------------------------------------------------------------------ render */
 
   function render() {
-    var err = $('inputError');
-    var pin, hole;
-
-    // The pin is required for everything below it.
+    var pin;
     try {
       pin = pinLimits();
     } catch (e) {
-      err.textContent = e.message;
-      err.hidden = false;
-      $('pinSummary').innerHTML = '<span class="muted">—</span>';
-      $('ladder').innerHTML = '';
+      $('err').textContent = e.message;
+      $('err').hidden = false;
       return;
     }
-    err.hidden = true;
-    $('pinSummary').innerHTML = summaryHtml(pin);
 
-    renderLadder(pin);
+    fillPinSelects();
+    $('pinLabel').textContent = pin.label;
+    $('pinReadout').innerHTML = readout(pin);
+    $('pinMore').innerHTML = moreTable(pin);
 
-    // The hole may be invalid on its own without invalidating the ladder.
+    var h;
     try {
-      hole = holeLimits();
+      h = resolveHole(pin);
     } catch (e) {
-      err.textContent = e.message;
-      err.hidden = false;
-      $('holeSummary').innerHTML = '<span class="muted">—</span>';
-      $('fitHeadline').innerHTML = '';
-      $('fitTables').innerHTML = '';
-      $('statsTable').innerHTML = '';
-      $('bellCurve').innerHTML = '';
-      $('circleView').innerHTML = Viz.circleView({
-        basic: state.dia, pin: pin, hole: null,
-        exaggeration: exaggeration(pin, null)
-      });
-      $('zoneChart').innerHTML = Viz.zoneChart({ basic: state.dia, pin: pin, hole: null });
+      $('err').textContent = e.message;
+      $('err').hidden = false;
       return;
     }
-    $('holeSummary').innerHTML = summaryHtml(hole);
+    $('err').hidden = true;
+
+    var hole = h.hole;
+    $('holeLabel').textContent = hole.label;
+    $('holePref').hidden = !h.row.preferred;
+    $('holeReadout').innerHTML = readout(hole);
+    $('holeMore').innerHTML = moreTable(hole);
+
+    $('gradeOut').textContent = 'IT' + state.holeGrade;
+    $('gradeWidth').textContent = Viz.fmt(hole.toleranceUm, 1) + ' µm wide';
+    $('posOut').textContent = mm(hole.mean) + ' mm';
+
+    // If a whole fit category is unreachable at this grade, say so rather than
+    // letting the user hunt along a slider for something that is not there.
+    var present = {};
+    h.rows.forEach(function (r) { present[r.fit] = true; });
+    var missing = ['interference', 'transition', 'clearance'].filter(function (k) {
+      return !present[k];
+    });
+    if (missing.length) {
+      $('holeHint').textContent = 'No ' + missing.join(' or ') +
+        ' option exists at IT' + state.holeGrade + ' with this pin — change the grade.';
+      $('holeHint').hidden = false;
+    } else {
+      $('holeHint').hidden = true;
+    }
 
     var stats = Fits.rss(pin, hole, rssOpts());
     var wc = stats.worstCase;
 
-    $('fitHeadline').className = 'headline is-' + wc.fit;
-    $('fitHeadline').innerHTML =
-      '<p class="headline-fit">' + Fits.FIT_INFO[wc.fit].name + ' fit — hole ' +
-        esc(hole.label) + ' on pin ' + esc(pin.label) + '</p>' +
-      '<p class="headline-main">' + describe(wc) + '</p>' +
-      '<p class="headline-blurb">' + Fits.FIT_INFO[wc.fit].blurb + '</p>';
+    $('fitBadge').className = 'fit-badge is-' + wc.fit;
+    $('fitBadge').textContent = Fits.FIT_INFO[wc.fit].name;
+    var word = wc.mean >= 0 ? 'interference' : 'clearance';
+    $('fitNum').innerHTML = 'nominal ' + word + ' <span class="n">' +
+      Viz.fmt(Math.abs(wc.mean), 1) + ' µm</span>, from <span class="n">' +
+      um(wc.min) + '</span> to <span class="n">' + um(wc.max) + ' µm</span>';
+    $('fitRss').textContent = pct(stats.pInterference) + ' interference';
 
-    $('fitTables').innerHTML = limitTable(pin, 'pin') + limitTable(hole, 'hole');
-
-    var E = exaggeration(pin, hole);
-    $('circleView').innerHTML = Viz.circleView({
-      basic: state.dia, pin: pin, hole: hole, exaggeration: E
-    });
-    $('trueScaleView').innerHTML = Viz.trueScaleView({
-      basic: state.dia, pin: pin, hole: hole
-    });
-    $('exagOut').textContent = '×' + Math.round(E);
-    $('zoneChart').innerHTML = Viz.zoneChart({ basic: state.dia, pin: pin, hole: hole });
-
-    $('statsTable').innerHTML = statsTable(stats);
+    renderViz(pin, hole);
     $('bellCurve').innerHTML = Viz.bellCurve(stats);
+
+    $('rssTable').innerHTML =
+      '<table class="mini"><tbody>' +
+      '<tr><th>Worst case</th><td>' + um(wc.min) + ' … ' + um(wc.max) + ' µm</td></tr>' +
+      '<tr><th>±' + Viz.fmt(stats.k, 1) + 'σ (RSS)</th><td>' +
+        um(stats.min) + ' … ' + um(stats.max) + ' µm</td></tr>' +
+      '<tr><th>σ pin / σ hole</th><td>' + Viz.fmt(stats.sigmaPin, 2) + ' / ' +
+        Viz.fmt(stats.sigmaHole, 2) + ' µm</td></tr>' +
+      '<tr><th>σ interference</th><td>' + Viz.fmt(stats.sigma, 2) + ' µm</td></tr>' +
+      '<tr><th>Interference / clearance</th><td>' + pct(stats.pInterference) +
+        ' / ' + pct(stats.pClearance) + '</td></tr>' +
+      '<tr><th>Over ' + um(state.target) + ' µm</th><td>' +
+        pct(stats.fractionAbove(state.target)) + '</td></tr>' +
+      '</tbody></table>';
     $('kEcho').textContent = Viz.fmt(stats.k, 1);
 
-    var frac = stats.fractionAbove(state.target);
-    $('targetOut').innerHTML =
-      '<span><b>' + pct(frac) + '</b> of assemblies exceed ' +
-      um(state.target) + ' µm interference</span>';
-
     syncHash();
-  }
-
-  /**
-   * Slider maps to a multiple of the auto-chosen factor, two decades either way,
-   * with 50 sitting on the auto value.
-   */
-  function exaggeration(pin, hole) {
-    var auto = Viz.autoExaggeration(state.dia, pin, hole || pin);
-    var mult = Math.pow(10, (state.exagSlider - 50) / 25);
-    return Math.max(1, auto * mult);
-  }
-
-  /* --------------------------------------------------------------- datalists */
-
-  function fillDatalists() {
-    try {
-      var pins = ISO286.availableClasses(state.dia, 'shaft');
-      var holes = ISO286.availableClasses(state.dia, 'hole');
-      $('pinClasses').innerHTML = pins.map(function (c) {
-        return '<option value="' + c + '">';
-      }).join('');
-      $('holeClasses').innerHTML = holes.map(function (c) {
-        return '<option value="' + c + '">';
-      }).join('');
-    } catch (e) { /* invalid diameter -- render() reports it */ }
   }
 
   /* --------------------------------------------------------------- URL state */
 
   function syncHash() {
     var p = ['d=' + state.dia];
-    if (state.useCustom) {
-      p.push('cu=' + state.customUpper, 'cl=' + state.customLower);
-    } else {
-      p.push('pin=' + state.pinClass);
-    }
-    p.push('hole=' + state.holeClass);
+    if (state.useCustom) p.push('cu=' + state.customUpper, 'cl=' + state.customLower);
+    else p.push('pin=' + state.pinLetter + state.pinGrade);
+    p.push('hole=' + state.holeLetter + state.holeGrade);
     if (state.k !== 3) p.push('k=' + state.k);
     if (state.shift !== 0) p.push('s=' + state.shift);
+    if (state.vizMode !== 'dia') p.push('v=' + state.vizMode);
     history.replaceState(null, '', '#' + p.join('&'));
   }
 
@@ -314,24 +304,32 @@
       if (i > 0) q[kv.slice(0, i)] = decodeURIComponent(kv.slice(i + 1));
     });
     if (q.d) state.dia = parseFloat(q.d);
-    if (q.pin) state.pinClass = q.pin;
-    if (q.hole) state.holeClass = q.hole;
+    if (q.pin) {
+      try {
+        var p = ISO286.parseClass(q.pin);
+        state.pinLetter = p.letter; state.pinGrade = p.grade;
+      } catch (e) { /* keep defaults */ }
+    }
+    if (q.hole) {
+      try {
+        var hh = ISO286.parseClass(q.hole);
+        state.holeLetter = hh.letter; state.holeGrade = hh.grade;
+      } catch (e) { /* keep defaults */ }
+    }
     if (q.k) state.k = parseFloat(q.k);
     if (q.s) state.shift = parseFloat(q.s);
+    if (q.v) state.vizMode = q.v;
     if (q.cu !== undefined && q.cl !== undefined) {
       state.useCustom = true;
       state.customUpper = parseFloat(q.cu);
       state.customLower = parseFloat(q.cl);
     }
     $('dia').value = state.dia;
-    $('pinClass').value = state.pinClass;
-    $('holeClass').value = state.holeClass;
     $('kSel').value = String(state.k);
     $('shift').value = state.shift;
     $('useCustom').checked = state.useCustom;
     $('customUpper').value = state.customUpper;
     $('customLower').value = state.customLower;
-    if (state.useCustom) $('customBox').open = true;
   }
 
   /* ------------------------------------------------------------------ events */
@@ -344,17 +342,43 @@
   function wire() {
     $('dia').addEventListener('input', function () {
       state.dia = num($('dia'), state.dia);
-      fillDatalists();
       render();
     });
-    $('pinClass').addEventListener('input', function () {
-      state.pinClass = $('pinClass').value.trim();
+    $('pinLetter').addEventListener('change', function () {
+      state.pinLetter = $('pinLetter').value;
       render();
     });
-    $('holeClass').addEventListener('input', function () {
-      state.holeClass = $('holeClass').value.trim();
+    $('pinGrade').addEventListener('change', function () {
+      state.pinGrade = parseInt($('pinGrade').value, 10);
       render();
     });
+
+    $('gradeSlider').addEventListener('input', function () {
+      var grades = HoleOptions.gradesFor(state.dia);
+      state.holeGrade = grades[parseInt($('gradeSlider').value, 10)];
+      render();
+    });
+    $('posSlider').addEventListener('input', function () {
+      var rows = HoleOptions.forGrade(state.dia, state.holeGrade, null);
+      var i = parseInt($('posSlider').value, 10);
+      if (rows[i]) {
+        state.holeLetter = rows[i].letter;
+        state.lastMeanDev = rows[i].meanDev;
+      }
+      render();
+    });
+
+    $('vizDia').addEventListener('click', function () {
+      state.vizMode = 'dia'; render();
+    });
+    $('vizZone').addEventListener('click', function () {
+      state.vizMode = 'zone'; render();
+    });
+    $('exag').addEventListener('input', function () {
+      state.exagSlider = parseFloat($('exag').value);
+      render();
+    });
+
     $('useCustom').addEventListener('change', function () {
       state.useCustom = $('useCustom').checked;
       render();
@@ -367,25 +391,17 @@
       });
     });
     $('kSel').addEventListener('change', function () {
-      state.k = parseFloat($('kSel').value);
-      render();
+      state.k = parseFloat($('kSel').value); render();
     });
     $('shift').addEventListener('input', function () {
-      state.shift = num($('shift'), 0);
-      render();
+      state.shift = num($('shift'), 0); render();
     });
     $('target').addEventListener('input', function () {
-      state.target = num($('target'), 0);
-      render();
-    });
-    $('exag').addEventListener('input', function () {
-      state.exagSlider = parseFloat($('exag').value);
-      render();
+      state.target = num($('target'), 0); render();
     });
   }
 
   readHash();
-  fillDatalists();
   wire();
   render();
 })();

@@ -3,217 +3,174 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Hole &amp; Pin Fit Calculator — ISO 286</title>
+<title>Hole &amp; Pin Fit — ISO 286</title>
 <link rel="stylesheet" href="css/app.css">
 </head>
 <body>
 
-<header class="topbar">
-  <div class="wrap">
-    <h1>Hole &amp; Pin Fit Calculator</h1>
-    <p class="tagline">ISO 286 limits and fits, with worst-case and RSS statistical
-      interference analysis.</p>
-  </div>
+<header class="bar">
+  <h1>Hole &amp; Pin Fit</h1>
+  <span class="bar-sub">ISO 286 limits, fits &amp; RSS stackup</span>
+  <span class="bar-gap"></span>
+  <p id="err" class="bar-err" hidden></p>
+  <a class="bar-link" href="verify.html">verify</a>
 </header>
 
-<main class="wrap">
+<main class="stage">
 
-  <!-- ------------------------------------------------------------- inputs -->
-  <section class="panel" aria-labelledby="h-input">
-    <h2 id="h-input">1 · The pin</h2>
-    <div class="input-row">
-      <label class="field">
-        <span class="field-label">Basic diameter</span>
-        <span class="field-input">
+  <!-- ============================================================ controls -->
+  <div class="col col-controls">
+
+    <section class="card">
+      <h2><i class="dot dot-pin"></i>Pin<b id="pinLabel">m6</b></h2>
+
+      <div class="ctrl">
+        <label class="ctrl-lab" for="dia">Diameter</label>
+        <span class="ctrl-in">
           <input type="number" id="dia" value="3" min="1" max="500" step="0.001"
                  inputmode="decimal">
-          <span class="unit">mm</span>
+          <span class="u">mm</span>
         </span>
-      </label>
+      </div>
 
-      <label class="field">
-        <span class="field-label">Pin tolerance class</span>
-        <span class="field-input">
-          <input type="text" id="pinClass" value="m6" list="pinClasses"
-                 autocapitalize="off" autocomplete="off" spellcheck="false">
+      <div class="ctrl">
+        <label class="ctrl-lab" for="pinLetter">Tolerance</label>
+        <span class="ctrl-in ctrl-in-pair">
+          <select id="pinLetter" aria-label="Pin tolerance letter"></select>
+          <select id="pinGrade" aria-label="Pin tolerance grade"></select>
         </span>
-        <datalist id="pinClasses"></datalist>
-      </label>
-
-      <div class="field field-grow">
-        <span class="field-label">Pin limits</span>
-        <div id="pinSummary" class="summary summary-pin"></div>
       </div>
-    </div>
 
-    <details id="customBox" class="custom">
-      <summary>Custom pin deviations <span class="muted">— for a ground dowel or
-        supplier-specified part that is not to an ISO class</span></summary>
-      <div class="custom-body">
-        <label class="chk">
-          <input type="checkbox" id="useCustom">
-          <span>Use these values instead of the ISO class</span>
-        </label>
-        <label class="field field-sm">
-          <span class="field-label">Upper deviation</span>
-          <span class="field-input">
-            <input type="number" id="customUpper" value="8" step="0.1">
-            <span class="unit">µm</span>
-          </span>
-        </label>
-        <label class="field field-sm">
-          <span class="field-label">Lower deviation</span>
-          <span class="field-input">
-            <input type="number" id="customLower" value="2" step="0.1">
-            <span class="unit">µm</span>
-          </span>
-        </label>
-      </div>
-    </details>
+      <div class="readout" id="pinReadout"></div>
 
-    <p id="inputError" class="error" hidden></p>
-  </section>
-
-  <!-- -------------------------------------------------------- suggestions -->
-  <section class="panel" aria-labelledby="h-suggest">
-    <h2 id="h-suggest">2 · Suggested hole tolerances</h2>
-    <p class="note">Interference is measured as <strong>pin size − hole
-      size</strong>: positive means the pin is larger than the hole. Each group is
-      ordered tightest first. Click a row to analyse it.</p>
-    <div id="ladder" class="ladder"></div>
-  </section>
-
-  <!-- ------------------------------------------------------- selected fit -->
-  <section class="panel" aria-labelledby="h-fit">
-    <h2 id="h-fit">3 · Selected fit</h2>
-    <div class="input-row">
-      <label class="field">
-        <span class="field-label">Hole tolerance class</span>
-        <span class="field-input">
-          <input type="text" id="holeClass" value="JS6" list="holeClasses"
-                 autocapitalize="off" autocomplete="off" spellcheck="false">
-        </span>
-        <datalist id="holeClasses"></datalist>
-      </label>
-      <div class="field field-grow">
-        <span class="field-label">Hole limits</span>
-        <div id="holeSummary" class="summary summary-hole"></div>
-      </div>
-    </div>
-
-    <div id="fitHeadline" class="headline"></div>
-    <div id="fitTables" class="tables"></div>
-  </section>
-
-  <!-- ------------------------------------------------------ visualisation -->
-  <section class="panel" aria-labelledby="h-viz">
-    <h2 id="h-viz">4 · Visualisation</h2>
-    <div class="viz-grid">
-      <figure class="viz-fig">
-        <figcaption>
-          Diameters and tolerance bands
-          <span class="legend">
-            <i class="sw sw-pin-band"></i> pin band
-            <i class="sw sw-pin-line"></i> pin nominal
-            <i class="sw sw-hole-band"></i> hole band
-            <i class="sw sw-hole-line"></i> hole nominal
-            <i class="sw sw-overlap"></i> bands overlap — fit may go either way
-          </span>
-        </figcaption>
-        <div id="circleView"></div>
-        <div class="exag">
-          <label for="exag">Tolerance exaggeration</label>
-          <input type="range" id="exag" min="0" max="100" value="50">
-          <output id="exagOut"></output>
-          <div class="truescale">
-            <div id="trueScaleView"></div>
-            <span class="muted">true scale</span>
+      <details class="more">
+        <summary>more</summary>
+        <div class="more-body">
+          <div id="pinMore"></div>
+          <hr>
+          <label class="chk">
+            <input type="checkbox" id="useCustom">
+            <span>Use custom deviations instead of an ISO class</span>
+          </label>
+          <div class="custom-pair">
+            <label>upper <input type="number" id="customUpper" value="8" step="0.1"> µm</label>
+            <label>lower <input type="number" id="customLower" value="2" step="0.1"> µm</label>
           </div>
+          <p class="fine">For a ground dowel or supplier-specified part that is not
+            to an ISO class.</p>
         </div>
-      </figure>
+      </details>
+    </section>
 
-      <figure class="viz-fig">
-        <figcaption>Tolerance zones about the basic size</figcaption>
-        <div id="zoneChart"></div>
-      </figure>
-    </div>
-  </section>
+    <section class="card">
+      <h2><i class="dot dot-hole"></i>Hole<b id="holeLabel">JS6</b>
+        <span class="pref" id="holePref" hidden>preferred</span></h2>
 
-  <!-- ------------------------------------------------------------- stats -->
-  <section class="panel" aria-labelledby="h-stats">
-    <h2 id="h-stats">5 · RSS tolerance stackup</h2>
-
-    <div class="input-row stats-controls">
-      <label class="field">
-        <span class="field-label">Process capability</span>
-        <span class="field-input">
-          <select id="kSel">
-            <option value="3" selected>±3σ at the limits (Cp 1.00)</option>
-            <option value="4">±4σ at the limits (Cp 1.33)</option>
-            <option value="4.5">±4.5σ at the limits (Cp 1.50)</option>
-            <option value="6">±6σ at the limits (Cp 2.00)</option>
-          </select>
-        </span>
-      </label>
-      <label class="field">
-        <span class="field-label">Mean shift</span>
-        <span class="field-input">
-          <input type="number" id="shift" value="0" step="0.5">
-          <span class="unit">µm</span>
-        </span>
-      </label>
-      <label class="field">
-        <span class="field-label">Fraction exceeding</span>
-        <span class="field-input">
-          <input type="number" id="target" value="0" step="0.5">
-          <span class="unit">µm</span>
-        </span>
-      </label>
-      <div class="field field-grow">
-        <span class="field-label">Result</span>
-        <div id="targetOut" class="summary"></div>
+      <!-- axis 1: band width -->
+      <div class="slider">
+        <div class="slider-top">
+          <label for="gradeSlider">Tolerance grade</label>
+          <output id="gradeOut">IT6</output>
+        </div>
+        <input type="range" id="gradeSlider" min="0" max="7" step="1" value="1">
+        <div class="slider-bot">
+          <span>tighter</span>
+          <span class="slider-mid" id="gradeWidth">6 µm wide</span>
+          <span>looser</span>
+        </div>
       </div>
-    </div>
 
-    <div id="statsTable" class="tables"></div>
+      <!-- axis 2: band position, i.e. nominal diameter -->
+      <div class="slider">
+        <div class="slider-top">
+          <label for="posSlider">Nominal diameter</label>
+          <output id="posOut">3.0000 mm</output>
+        </div>
+        <span class="track-wrap">
+          <span class="track" id="posTrack"></span>
+          <input type="range" id="posSlider" min="0" max="11" step="1" value="8">
+        </span>
+        <div class="slider-bot">
+          <span class="k-int">interference</span>
+          <span class="k-cle">clearance</span>
+        </div>
+      </div>
 
-    <figure class="viz-fig viz-fig-wide">
-      <figcaption>Predicted distribution of interference across a production run</figcaption>
-      <div id="bellCurve"></div>
-    </figure>
+      <div class="readout" id="holeReadout"></div>
+      <p class="hint" id="holeHint" hidden></p>
 
-    <p class="caveat"><strong>What this assumes.</strong> Both dimensions are
-      treated as independent, normally distributed and centred in their tolerance
-      bands, with the band edges at ±<span id="kEcho">3</span>σ. Real machining
-      often runs offset or skewed — tool wear drifts one way — so treat these
-      percentages as an estimate of process capability, not a guarantee. The
-      worst-case limits are what the drawing has to survive.</p>
-  </section>
+      <details class="more">
+        <summary>more</summary>
+        <div class="more-body"><div id="holeMore"></div></div>
+      </details>
+    </section>
+  </div>
 
-  <!-- -------------------------------------------------------- references -->
-  <section class="panel" aria-labelledby="h-ref">
-    <h2 id="h-ref">Sources</h2>
-    <ul class="refs">
-      <li><strong>ISO 286-1:2010</strong> — basis of the code system: IT grade
-        definitions, fundamental deviation formulas, and the Δ rule this tool uses
-        to derive hole deviations from shaft ones.</li>
-      <li><strong>ISO 286-2:2010</strong> — tables of limit deviations for hole and
-        shaft classes.</li>
-      <li>Cross-checked against independently published reproductions:
-        <a href="https://www.roymech.co.uk/Useful_Tables/ISO_Tolerances/ISO_286_2H.html">RoyMech
-        ISO 286-2 hole</a> and <a href="https://www.roymech.co.uk/Useful_Tables/ISO_Tolerances/ISO_286_2s.html">shaft</a>
-        tables, <a href="https://www.engineersedge.com/international_tol.htm">Engineers
-        Edge IT grades</a>, <a href="https://www.cobanengineering.com/Tolerances/UpperAndLowerDeviationsShafts.asp">Coban
-        Engineering shaft deviations</a>, and <em>Machinery's Handbook</em>.</li>
-      <li>RSS stackup per standard tolerance-analysis practice — Fischer,
-        <em>Mechanical Tolerance Stackup and Analysis</em>; Creveling,
-        <em>Tolerance Design</em>.</li>
-      <li>See <code>REFERENCES.md</code> for which values rest on which source, and
-        <a href="verify.html">verify.html</a> to re-run the checks in your browser.</li>
-    </ul>
-    <p class="caveat">This tool is a calculator, not the standard. Confirm values
-      against ISO 286 before releasing production drawings.</p>
-  </section>
+  <!-- ======================================================== visual + fit -->
+  <div class="col col-view">
+
+    <section class="card card-viz">
+      <h2>Visualisation
+        <span class="seg">
+          <button type="button" id="vizDia" class="on">Diameters</button>
+          <button type="button" id="vizZone">Tolerance zones</button>
+        </span>
+      </h2>
+
+      <div class="viz-host" id="vizHost"></div>
+
+      <div class="viz-foot" id="vizFoot">
+        <label for="exag">Exaggeration</label>
+        <input type="range" id="exag" min="0" max="100" value="50">
+        <output id="exagOut">×160</output>
+        <span class="ts"><span id="trueScaleView"></span><span class="fine">true scale</span></span>
+      </div>
+
+      <div class="legend" id="vizLegend"></div>
+    </section>
+
+    <section class="card card-fit">
+      <div class="fit-line">
+        <span class="fit-badge" id="fitBadge">Transition</span>
+        <span class="fit-num" id="fitNum"></span>
+        <span class="fit-gap"></span>
+        <span class="fit-rss" id="fitRss"></span>
+      </div>
+
+      <div class="bell-host" id="bellCurve"></div>
+
+      <details class="more more-up">
+        <summary>RSS detail &amp; assumptions</summary>
+        <div class="more-body">
+          <div class="rss-ctrl">
+            <label>Capability
+              <select id="kSel">
+                <option value="3" selected>±3σ (Cp 1.00)</option>
+                <option value="4">±4σ (Cp 1.33)</option>
+                <option value="4.5">±4.5σ (Cp 1.50)</option>
+                <option value="6">±6σ (Cp 2.00)</option>
+              </select>
+            </label>
+            <label>Mean shift
+              <input type="number" id="shift" value="0" step="0.5"> µm
+            </label>
+            <label>Fraction over
+              <input type="number" id="target" value="0" step="0.5"> µm
+            </label>
+          </div>
+          <div id="rssTable"></div>
+          <p class="fine"><strong>Assumes</strong> both dimensions independent,
+            normal and centred, limits at ±<span id="kEcho">3</span>σ. Real
+            machining often runs offset or skewed, so these are process-capability
+            estimates, not guarantees. The worst-case range is what the drawing has
+            to survive. Interference is pin size − hole size.</p>
+          <p class="fine">Sources: ISO 286-1 / 286-2, cross-checked against
+            published tables — see <code>REFERENCES.md</code>. Confirm against the
+            standard before releasing drawings.</p>
+        </div>
+      </details>
+    </section>
+  </div>
 </main>
 
 <script src="js/iso286.js"></script>

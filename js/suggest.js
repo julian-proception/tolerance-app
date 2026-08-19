@@ -1,24 +1,25 @@
 /*
- * suggest.js — ranked ladder of hole tolerances for a given pin.
+ * suggest.js — hole options laid out along the two axes ISO actually uses.
  *
- * Produces three groups (interference / transition / clearance), each sorted by
- * mean interference descending, so the ladder reads top to bottom as tight ->
- * loose. The app does not assume hole-basis fits: the pin may carry any class,
- * and every valid hole class is evaluated against it.
+ * A hole class is two independent choices:
+ *
+ *   grade  (IT number)  ->  the WIDTH of the tolerance band
+ *   letter (deviation)  ->  the POSITION of that band, i.e. the nominal diameter
+ *
+ * Width is set directly by the grade slider. Position is what decides whether the
+ * fit is interference, transition or clearance, so the second slider walks the
+ * available letters ordered by nominal diameter and the tool reports whichever ISO
+ * class that lands on. The user moves a diameter; the class is the output.
  */
-var Suggest = (function () {
+var HoleOptions = (function () {
   'use strict';
 
-  // Preferred fits from ISO 286, written as "hole/shaft". These are the pairings
-  // with established tooling, gauging and published assembly practice behind
-  // them, so they are worth flagging even when a neighbouring class fits better
-  // numerically. Union of the hole-basis and shaft-basis preferred selections.
+  // Preferred fits from ISO 286, written as "hole/shaft" -- the pairings with
+  // established tooling and gauging behind them.
   var PREFERRED = {};
-  [ // hole basis (H hole, varying shaft)
-    'H11/c11', 'H11/h11', 'H9/d9', 'H9/e9', 'H9/h9', 'H8/e8', 'H8/f7', 'H8/h7',
+  [ 'H11/c11', 'H11/h11', 'H9/d9', 'H9/e9', 'H9/h9', 'H8/e8', 'H8/f7', 'H8/h7',
     'H7/g6', 'H7/h6', 'H7/js6', 'H7/k6', 'H7/m6', 'H7/n6', 'H7/p6', 'H7/r6',
     'H7/s6', 'H7/u6',
-    // shaft basis (h shaft, varying hole)
     'C11/h11', 'D9/h9', 'E9/h9', 'F8/h7', 'G7/h6', 'JS7/h6', 'K7/h6', 'M7/h6',
     'N7/h6', 'P7/h6', 'R7/h6', 'S7/h6', 'U7/h6'
   ].forEach(function (p) { PREFERRED[p] = true; });
@@ -27,99 +28,122 @@ var Suggest = (function () {
     return !!PREFERRED[holeLabel + '/' + pinLabel];
   }
 
-  /**
-   * Evaluate every sensible hole class against the pin.
-   *
-   * @param size      basic size in mm
-   * @param pinLimits limits object for the pin (from ISO286.limits, or a custom
-   *                  deviation object with the same shape)
-   * @param opts      {k, meanShift, perGroup, grades}
-   */
-  function ladder(size, pinLimits, opts) {
-    opts = opts || {};
-    var perGroup = opts.perGroup || 6;
-
-    // Which IT grades to consider for the hole. IT6-IT8 covers normal precision
-    // work; the pin's own grade and one coarser are added so the hole can be
-    // matched to the pin rather than to a fixed assumption.
-    var gradeSet = {};
-    (opts.grades || [6, 7, 8]).forEach(function (g) { gradeSet[g] = true; });
-    if (pinLimits.grade) {
-      gradeSet[pinLimits.grade] = true;
-      gradeSet[pinLimits.grade + 1] = true;
-    }
-
-    var candidates = ISO286.availableClasses(size, 'hole').filter(function (label) {
-      var grade = parseInt(label.replace(/[^0-9]/g, ''), 10);
-      return gradeSet[grade];
+  /** Grades that have at least one hole letter defined at this size. */
+  function gradesFor(size) {
+    var seen = {};
+    ISO286.availableClasses(size, 'hole').forEach(function (label) {
+      seen[parseInt(label.replace(/[^0-9]/g, ''), 10)] = true;
     });
-
-    var rows = candidates.map(function (label) {
-      var hole = ISO286.limits(size, label);
-      var stats = Fits.rss(pinLimits, hole, opts);
-      return {
-        label: label,
-        hole: hole,
-        wc: stats.worstCase,
-        rss: stats,
-        fit: stats.worstCase.fit,
-        preferred: isPreferred(label, pinLimits.label)
-      };
-    });
-
-    var groups = { interference: [], transition: [], clearance: [] };
-    rows.forEach(function (r) { groups[r.fit].push(r); });
-
-    Object.keys(groups).forEach(function (key) {
-      // Tightest first within every group: highest mean interference at the top.
-      groups[key].sort(function (a, b) {
-        if (b.wc.mean !== a.wc.mean) return b.wc.mean - a.wc.mean;
-        // Tie-break: prefer the ISO preferred pairing, then the tighter hole.
-        if (a.preferred !== b.preferred) return a.preferred ? -1 : 1;
-        return a.hole.toleranceUm - b.hole.toleranceUm;
-      });
-    });
-
-    /*
-     * Trim each group from the MIDDLE, not the tail.
-     *
-     * Both ends of a group are interesting and they mean different things: the
-     * head is the tightest option, the tail the loosest. Keeping only the head
-     * hides exactly the rows an engineer reaches for most -- the bottom of the
-     * transition group, where a fit is barely-clearance, and the top of the
-     * clearance group. Any ISO preferred fit is also kept wherever it falls, so a
-     * badge can never be truncated out of sight.
-     */
-    var result = {};
-    Object.keys(groups).forEach(function (key) {
-      var all = groups[key];
-      var keep = {};
-      if (all.length <= perGroup) {
-        all.forEach(function (r, i) { keep[i] = true; });
-      } else {
-        var headN = Math.ceil(perGroup / 2);
-        var tailN = perGroup - headN;
-        for (var i = 0; i < headN; i++) keep[i] = true;
-        for (var j = Math.max(headN, all.length - tailN); j < all.length; j++) keep[j] = true;
-        all.forEach(function (r, i) { if (r.preferred) keep[i] = true; });
-      }
-      var rows = [], prev = -1;
-      all.forEach(function (r, i) {
-        if (!keep[i]) return;
-        // How many classes were skipped immediately before this row, so the UI can
-        // show the elision instead of implying the list is contiguous.
-        r.skippedBefore = (prev >= 0) ? (i - prev - 1) : 0;
-        rows.push(r);
-        prev = i;
-      });
-      result[key] = {
-        rows: rows,
-        total: all.length,
-        hidden: all.length - rows.length
-      };
-    });
-    return result;
+    return Object.keys(seen).map(Number).sort(function (a, b) { return a - b; });
   }
 
-  return { ladder: ladder, isPreferred: isPreferred, PREFERRED: PREFERRED };
+  /**
+   * Every hole class at this size and grade, ordered by nominal (mean) diameter
+   * ascending -- so index 0 is the smallest hole (most interference) and the last
+   * index is the largest (most clearance). That ordering is what makes the
+   * position slider read left-to-right as interference -> clearance.
+   *
+   * Sorting by the computed mean rather than by a hardcoded letter order keeps the
+   * slider monotonic even where the letter sequence would not be.
+   */
+  function forGrade(size, grade, pin) {
+    var rows = ISO286.availableClasses(size, 'hole')
+      .filter(function (label) {
+        return parseInt(label.replace(/[^0-9]/g, ''), 10) === grade;
+      })
+      .map(function (label) {
+        var hole = ISO286.limits(size, label);
+        var row = {
+          label: label,
+          letter: hole.letter,
+          hole: hole,
+          meanDev: (hole.upper + hole.lower) / 2
+        };
+        if (pin) {
+          row.wc = Fits.interference(pin, hole);
+          row.fit = row.wc.fit;
+          row.preferred = isPreferred(label, pin.label);
+        }
+        return row;
+      });
+
+    rows.sort(function (a, b) {
+      if (a.meanDev !== b.meanDev) return a.meanDev - b.meanDev;
+      return a.label < b.label ? -1 : 1;
+    });
+    return rows;
+  }
+
+  /**
+   * Widest deviations reachable in the precision grades (IT5-IT7) at this size,
+   * across both shaft and hole letters.
+   *
+   * This is what the circle view has to be scaled to accommodate. It is a
+   * function of DIAMETER ALONE -- not of the classes currently selected -- which
+   * is what lets the drawing scale stay pinned while the sliders move. Deriving
+   * it from a fixed reference tolerance instead does not work: the ratio of the
+   * most offset letter to the IT width grows with size (u is 2.8x IT7 at 3 mm but
+   * 4.7x at 120 mm), so a single ratio holds at one size and clamps at another.
+   */
+  function precisionExtremes(size) {
+    var lo = 0, hi = 0;
+    [5, 6, 7].forEach(function (grade) {
+      ['shaft', 'hole'].forEach(function (kind) {
+        ISO286.availableClasses(size, kind).forEach(function (label) {
+          if (parseInt(label.replace(/[^0-9]/g, ''), 10) !== grade) return;
+          var d = ISO286.deviations(size, label);
+          if (d.lower < lo) lo = d.lower;
+          if (d.upper > hi) hi = d.upper;
+        });
+      });
+    });
+    return { lo: lo, hi: hi };
+  }
+
+  /** Index of a label within a forGrade() list, or -1. */
+  function indexOf(rows, label) {
+    for (var i = 0; i < rows.length; i++) {
+      if (rows[i].label === label) return i;
+    }
+    return -1;
+  }
+
+  /**
+   * Index whose nominal deviation is closest to a target, used to hold the
+   * position steady when the grade changes underneath it.
+   */
+  function nearestIndex(rows, targetMeanDev) {
+    var best = 0, bestD = Infinity;
+    rows.forEach(function (r, i) {
+      var d = Math.abs(r.meanDev - targetMeanDev);
+      if (d < bestD) { bestD = d; best = i; }
+    });
+    return best;
+  }
+
+  /**
+   * Contiguous runs of like fit category across the ordered list, for painting
+   * the slider track so the three regions are visible before you slide into them.
+   * Returns [{fit, from, to}] with inclusive indices.
+   */
+  function bands(rows) {
+    var out = [];
+    rows.forEach(function (r, i) {
+      var last = out[out.length - 1];
+      if (last && last.fit === r.fit) last.to = i;
+      else out.push({ fit: r.fit, from: i, to: i });
+    });
+    return out;
+  }
+
+  return {
+    forGrade: forGrade,
+    gradesFor: gradesFor,
+    precisionExtremes: precisionExtremes,
+    indexOf: indexOf,
+    nearestIndex: nearestIndex,
+    bands: bands,
+    isPreferred: isPreferred,
+    PREFERRED: PREFERRED
+  };
 })();

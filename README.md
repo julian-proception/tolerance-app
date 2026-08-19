@@ -1,9 +1,13 @@
 # Hole & Pin Fit Calculator
 
-Enter a pin diameter and tolerance; get a ranked ladder of hole tolerances
-spanning interference → transition → clearance, the exact limits and interference
-range for whichever you pick, a 2D visualisation of both tolerance bands, and an
-RSS bell curve predicting how a production run will actually distribute.
+Enter a pin diameter and tolerance class, then dial in a hole along the two axes
+ISO actually uses — **grade** sets the tolerance band's width, and **nominal
+diameter** sets its position, which is what moves the fit through interference,
+transition and clearance. The ISO hole class is the output. Limits, interference
+range, a 2D visualisation of both tolerance bands and an RSS bell curve all update
+live.
+
+The whole tool fits one screen; secondary detail sits behind `more` panels.
 
 Static HTML, CSS and vanilla JavaScript. No build step, no dependencies.
 
@@ -20,7 +24,7 @@ State lives in the URL hash, so a fit can be bookmarked or shared:
 
 ## Verifying it
 
-The tolerance data is the whole value of this tool, so it ships with 188 checks
+The tolerance data is the whole value of this tool, so it ships with 231 checks
 against published values.
 
 ```sh
@@ -34,9 +38,11 @@ The checks cover: the IT grade matrix; the fully corroborated `>3–6 mm` hole r
 widely published classes at 25/50/30/10/6 mm; the r/s/t/u sub-range boundaries;
 classes that must be *rejected*; `erf`/Φ accuracy; RSS arithmetic; a
 2 028-combination self-consistency sweep; fit-classification boundaries; the
-suggestion ladder's ordering and trimming; circle-view geometry against
-hand-computed pixel values; axis tick labelling; and an initialisation run of
-`app.js` against a stub DOM.
+monotonicity of both hole axes and the painted slider track; circle-view geometry
+against hand-computed pixel values; axis tick labelling; and — since there is no
+browser here — an initialisation *and interaction* run of `app.js` against a stub
+DOM that fires the real event handlers (sliders, dropdowns, the view toggle,
+custom deviations, the RSS controls and hostile input).
 
 ## Layout
 
@@ -44,7 +50,7 @@ hand-computed pixel values; axis tick labelling; and an initialisation run of
 |---|---|
 | `js/iso286.js` | Size ranges, IT matrix, shaft fundamental deviations, and the rules that derive hole deviations from them |
 | `js/fits.js` | Interference, fit classification, RSS statistics, `erf` |
-| `js/suggest.js` | The interference / transition / clearance ladder |
+| `js/suggest.js` | `HoleOptions`: the grade and nominal-diameter axes, and the fit bands painted on the position slider |
 | `js/viz.js` | Inline SVG: circle view, tolerance zone chart, bell curve |
 | `js/app.js` | State, rendering, event wiring |
 | `js/verify-cases.js` | Published spot-check fixtures, each tagged with its source |
@@ -55,6 +61,16 @@ hand-computed pixel values; axis tick labelling; and an initialisation run of
 
 **Interference is `pin size − hole size`** throughout — positive means the pin is
 larger than the hole. Nothing in the app deviates from that convention.
+
+**The drawing scale is pinned, not adaptive.** The circle view exaggerates the
+tolerance bands — at 3 mm a ±3 µm band is 0.1% of the diameter and would otherwise
+be a hairline — and the factor is stated on the drawing. It is derived from the
+**diameter alone**, by scaling to the widest deviations reachable in IT5–IT7, so
+that moving either hole slider changes the picture only in the way it should: the
+bands move and resize against a fixed scale, rather than the whole drawing
+rescaling under the cursor. Beyond IT7 no single scale can stay fixed and stay
+legible — an A12 hole sits over 500 µm off basic — so there the factor is reduced
+just enough to keep the drawing on the canvas, and the label reports it.
 
 **The bell curve is a model.** It assumes both dimensions are independent, normal
 and centred, with the tolerance limits at ±3σ (adjustable). Real machining often

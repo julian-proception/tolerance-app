@@ -70,25 +70,68 @@ var Viz = (function () {
 
   /* ------------------------------------------------------------ 1. circle view */
 
-  var R0 = 108;          // displayed radius of the basic size, px
-  var BAND_TARGET = 46;  // px we want the widest tolerance excursion to occupy
+  /*
+   * The basic circle's placement buys headroom in both directions. Interference
+   * letters push INWARD (at 25 mm a U7 hole sits 62 um below basic) and clearance
+   * letters push OUTWARD (E7 reaches 61 um above it), so the space either side is
+   * balanced rather than centred: 90 px in, 88 px out.
+   */
+  var R0 = 104;          // displayed radius of the basic size, px
+  var R_MIN = 14;        // innermost radius we will draw, px
+  var R_MAX = 192;       // outermost radius that still fits the 400 px box, px
 
   /**
-   * Exaggeration factor that makes the bands legible. A +/-3 um band on a 3 mm
-   * circle is 0.1% of the diameter, so at true scale it is a hairline; the view is
-   * only honest if the factor is computed, shown, and adjustable.
+   * The drawing scale, pinned per diameter.
+   *
+   * A +/-3 um band on a 3 mm circle is 0.1% of the diameter -- at true scale it is
+   * a hairline -- so the bands have to be exaggerated, and the view is only honest
+   * if the factor is computed, shown and adjustable.
+   *
+   * Crucially the factor is derived from the DIAMETER alone, via the widest
+   * deviations reachable in the precision grades (see precisionExtremes). It is
+   * never derived from the classes currently selected: doing that rescales the
+   * drawing on every slider step, so the circles shift under the cursor exactly
+   * when you are trying to compare one position against the next. Scaling to the
+   * reachable extremes means the whole of IT5-IT7 fits at one fixed factor, at
+   * every size.
+   *
+   * @param basic  diameter in mm
+   * @param lo,hi  widest reachable deviations in um (from precisionExtremes)
    */
-  function autoExaggeration(basic, pin, hole) {
-    var m = Math.max(Math.abs(pin.upper), Math.abs(pin.lower),
-                     Math.abs(hole.upper), Math.abs(hole.lower));
-    if (m <= 0) return 1;
-    var rBasicMm = basic / 2;
-    var mRadialMm = m / 2000;             // um diametral -> mm radial
-    var pxPerMmTrue = R0 / rBasicMm;
-    var e = BAND_TARGET / (pxPerMmTrue * mRadialMm);
-    // Round to 2 significant figures so the label reads as a round number.
+  function pinnedExaggeration(basic, lo, hi) {
+    var e = clampExaggeration(basic, { upper: hi, lower: lo }, null, Infinity);
+    if (!isFinite(e)) return 1;
+    // Round to 2 significant figures so the label reads as a round number, then
+    // step back below the geometric limit so rounding cannot push it over.
     var mag = Math.pow(10, Math.floor(Math.log(e) / Math.LN10) - 1);
-    return Math.max(1, Math.round(e / mag) * mag);
+    var rounded = Math.floor(e / mag) * mag;
+    return Math.max(1, rounded);
+  }
+
+  /**
+   * Largest factor that still draws inside the box for these particular classes.
+   *
+   * A pinned factor cannot be applied unconditionally: at 3 mm a U6 hole sits
+   * 24 um below basic, and at high exaggeration that pushes the inner radius past
+   * the centre and the circle turns inside out. So the pinned factor is used as-is
+   * whenever it fits -- which is the whole normal working range -- and is reduced
+   * only where geometry forces it. The label always reports the factor actually
+   * used, so a reduction is visible rather than silent.
+   */
+  function clampExaggeration(basic, pin, hole, E) {
+    var devs = [0];
+    if (pin) devs.push(pin.upper, pin.lower);
+    if (hole) devs.push(hole.upper, hole.lower);
+    var lo = Math.min.apply(null, devs), hi = Math.max.apply(null, devs);
+    var pxPerMmTrue = R0 / (basic / 2);
+    var limit = E;
+    if (lo < 0) {
+      limit = Math.min(limit, (R0 - R_MIN) * 2000 / (pxPerMmTrue * -lo));
+    }
+    if (hi > 0) {
+      limit = Math.min(limit, (R_MAX - R0) * 2000 / (pxPerMmTrue * hi));
+    }
+    return Math.max(1, limit);
   }
 
   /**
@@ -172,8 +215,8 @@ var Viz = (function () {
   /** The classic ISO zone chart: deviations in um about the zero (basic size) line. */
   function zoneChart(opts) {
     var pin = opts.pin, hole = opts.hole, basic = opts.basic;
-    var W = 440, H = 300;
-    var padL = 56, padR = 16, padT = 26, padB = 42;
+    var W = 560, H = 320;
+    var padL = 58, padR = 18, padT = 26, padB = 44;
     var plotW = W - padL - padR, plotH = H - padT - padB;
 
     var vals = [0];
@@ -247,8 +290,8 @@ var Viz = (function () {
    * first thing the eye lands on.
    */
   function bellCurve(stats) {
-    var W = 640, H = 340;
-    var padL = 54, padR = 20, padT = 22, padB = 56;
+    var W = 700, H = 190;
+    var padL = 48, padR = 18, padT = 20, padB = 40;
     var plotW = W - padL - padR, plotH = H - padT - padB;
     var wc = stats.worstCase;
 
@@ -307,7 +350,7 @@ var Viz = (function () {
       s += '<text x="' + x(t).toFixed(1) + '" y="' + (y(0) + 16).toFixed(1) +
            '" text-anchor="middle" class="viz-tick">' + signed(t, tk.dp) + '</text>';
     });
-    s += '<text x="' + (padL + plotW / 2) + '" y="' + (H - 22) +
+    s += '<text x="' + (padL + plotW / 2) + '" y="' + (H - 8) +
          '" text-anchor="middle" class="viz-axis">interference (µm) — ' +
          'negative is clearance</text>';
 
@@ -338,12 +381,12 @@ var Viz = (function () {
       return (v * 100).toFixed(v > 0.001 && v < 0.999 ? 1 : 2) + '%';
     }
     if (stats.pClearance > 0.0005) {
-      s += '<text x="' + ((padL + x(0)) / 2).toFixed(1) + '" y="' + (padT + plotH * 0.62) +
+      s += '<text x="' + ((padL + x(0)) / 2).toFixed(1) + '" y="' + (padT + plotH * 0.55) +
            '" text-anchor="middle" class="viz-pct viz-pct-hole">' +
            pct(stats.pClearance) + ' clearance</text>';
     }
     if (stats.pInterference > 0.0005) {
-      s += '<text x="' + ((x(0) + W - padR) / 2).toFixed(1) + '" y="' + (padT + plotH * 0.42) +
+      s += '<text x="' + ((x(0) + W - padR) / 2).toFixed(1) + '" y="' + (padT + plotH * 0.38) +
            '" text-anchor="middle" class="viz-pct viz-pct-pin">' +
            pct(stats.pInterference) + ' interference</text>';
     }
@@ -357,7 +400,8 @@ var Viz = (function () {
     trueScaleView: trueScaleView,
     zoneChart: zoneChart,
     bellCurve: bellCurve,
-    autoExaggeration: autoExaggeration,
+    pinnedExaggeration: pinnedExaggeration,
+    clampExaggeration: clampExaggeration,
     fmt: fmt,
     signed: signed,
     COLORS: C

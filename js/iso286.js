@@ -347,7 +347,35 @@ var ISO286 = (function () {
     };
   }
 
-  /** Class strings valid at this size, for dropdowns and the suggestion ladder. */
+  /**
+   * Letters valid at this size for a feature kind, ordered loosest-hole-first for
+   * shafts (a..u) and the same sequence for holes. Drives the letter dropdown.
+   */
+  function letters(size, kind) {
+    checkSize(size);
+    var table = (kind === 'hole') ? OFFERED_GRADES_HOLE : OFFERED_GRADES;
+    return Object.keys(table).filter(function (letter) {
+      // Keep a letter only if at least one of its grades exists at this size,
+      // so t never appears in the list below 24 mm.
+      return table[letter].some(function (grade) {
+        try { deviations(size, letter + grade); return true; }
+        catch (e) { return false; }
+      });
+    });
+  }
+
+  /** Grades offered for one letter at this size. */
+  function gradesForLetter(size, letter, kind) {
+    checkSize(size);
+    var table = (kind === 'hole') ? OFFERED_GRADES_HOLE : OFFERED_GRADES;
+    var list = table[letter] || [];
+    return list.filter(function (grade) {
+      try { deviations(size, letter + grade); return true; }
+      catch (e) { return false; }
+    });
+  }
+
+  /** Class strings valid at this size, for dropdowns and the option lists. */
   function availableClasses(size, kind) {
     checkSize(size);
     var table = (kind === 'hole') ? OFFERED_GRADES_HOLE : OFFERED_GRADES;
@@ -370,6 +398,8 @@ var ISO286 = (function () {
     limits: limits,
     parseClass: parseClass,
     availableClasses: availableClasses,
+    letters: letters,
+    gradesForLetter: gradesForLetter,
     deltaFor: deltaFor,
     symmetricHalf: symmetricHalf,
     MIN_SIZE: MIN_SIZE,
