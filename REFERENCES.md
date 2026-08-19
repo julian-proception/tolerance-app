@@ -82,7 +82,105 @@ undefined at or below 24 mm**. These are keyed on a separate 25-entry range list
 in `js/iso286.js`. Sub-range boundaries are asserted either side of a split (r6 at
 65 mm = +41 vs at 66 mm = +43).
 
+## Material properties
+
+Every property lives in `data/materials.csv`, one row per material, with a
+`source` column on each row. Both shipped rows were cross-checked against two
+independent reproductions of the same underlying datasheet.
+
+### Aluminium 6061-T6 / T651
+
+| Property | Value | Note |
+|---|---|---|
+| Density | 2700 kg/m³ | 2.70 g/cm³ |
+| Elastic modulus | 68.9 GPa | 10.0 Msi |
+| Poisson's ratio | 0.33 | |
+| Tensile (UTS) | 310 MPa | 45 ksi |
+| Yield | 276 MPa | 40 ksi |
+| Shear (ultimate) | 207 MPa | 30 ksi — a *measured* value, not an estimate |
+| Expansion | 23.6 µm/m·K | |
+
+Sources: the ASM/MatWeb 6061-T6 set, as reproduced in
+[this 6061-T651 datasheet](https://quickparts.com/wp-content/uploads/2024/05/Aluminum-6061.pdf)
+(density, Poisson, expansion and the ksi column confirmed directly) and
+[AmesWeb's 6061 sheet/plate tables](https://amesweb.info/Materials/Aluminum-6061-Sheet-Plate.aspx),
+which cite MMPDS-01. This is the most widely reproduced set of numbers for the
+alloy and the four strength values are mutually consistent in ksi.
+
+### Alloy steel — AISI 4140, quenched & tempered
+
+| Property | Value | Note |
+|---|---|---|
+| Density | 7850 kg/m³ | 7.85 g/cm³ |
+| Elastic modulus | 205 GPa | published range 190–210 |
+| Poisson's ratio | 0.29 | published range 0.27–0.30 |
+| Tensile (UTS) | 850 MPa | ⚠️ **low end** of the 850–1000 MPa Q&T range |
+| Yield | 655 MPa | ⚠️ **low end** of the 650–850 MPa Q&T range |
+| Shear (ultimate) | 510 MPa | ⚠️ **derived**, 0.60 × UTS |
+| Expansion | 12.3 µm/m·K | published 12.2–12.3 |
+
+Sources: [AZoM's AISI 4140 datasheet](https://www.azom.com/article.aspx?ArticleID=6769)
+(density, modulus range, Poisson range, expansion) and
+[a MatWeb-derived 4140 property summary](https://www.otaialloysteel.com/4140-steel-properties-matweb/)
+plus [a second Q&T summary](https://www.fuhongforge.com/aisi-4140-steel-a-complete-guide-for-buyers-and-engineers/),
+which agree on 850–1000 MPa UTS, ≥650–670 MPa yield, 205 GPa and 12.3 µm/m·K for
+the quenched-and-tempered condition at a 25 mm section.
+
+Three deliberate choices in that row:
+
+1. **"Alloy steel" is not a specification.** 4140 Q&T is used as the
+   representative low-alloy steel because it is what press-fit pins and hubs are
+   actually made from. The row is labelled with its condition so nobody mistakes it
+   for a generic value.
+2. **UTS and yield are taken at the bottom of the published range.** Yield gates
+   the tool's "past yield" warning, so erring low makes the warning fire early
+   rather than late.
+3. **Shear strength is derived, not quoted** — 0.60 × UTS, the standard steel
+   approximation. For comparison, 6061-T6's *measured* shear/UTS ratio is 0.67, so
+   0.60 is on the conservative side. Shear strength is not currently used by any
+   calculation; it is carried because the brief asked for it and a torsional or
+   pin-shear check would need it.
+
+⚠️ **Friction coefficients (0.28 for 6061, 0.15 for 4140) are the weakest numbers
+in this file.** Friction is a property of an *interface*, not of a material, so no
+per-material column can be correct about it. The values are practical press-fit
+figures — 0.15 for steel-on-steel is the coefficient Shigley uses for press-fit
+torque capacity, and aluminium is given a higher value because it galls. A
+dissimilar pair is estimated as the arithmetic mean of the two, which puts
+steel-on-aluminium at 0.215, inside the 0.17–0.30 commonly published for that pair.
+Insertion and holding force scale linearly with this number, so the UI exposes it
+as an override and the app labels it `(est.)` until you set it.
+
+## Press-fit model
+
+The mechanics in `js/press.js` are the Lamé thick-walled cylinder solution for a
+shaft in a hub — the standard elastic treatment in Shigley, *Mechanical
+Engineering Design* (the interference-fit section) and Roark, *Formulas for Stress
+and Strain* (thick cylinders under internal/external pressure). Nothing about it
+is novel, so rather than cite a table it is verified structurally:
+
+- against a **hand-worked reference case** (25 mm, 50 µm interference, steel in
+  steel, hub OD 50 mm, L 25 mm, µ 0.15 → p = 153.75 MPa, F = 45.28 kN,
+  T = 566.0 N·m), computed from the equations independently of the code;
+- against its **exact limit cases**: an infinite hub must collapse its compliance
+  term to (1+ν)/E, a solid pin to (1−ν)/E, both geometry factors to 1, and a solid
+  pin's von Mises stress to exactly the contact pressure;
+- against the **strain identity** ε_hub − ε_pin = δ/D, which must hold exactly
+  because the two parts' deformations have to account for precisely the
+  interference forced between them (96 combinations, worst relative error ~1e-16);
+- against **scaling laws**: force linear in length, friction and interference;
+  pressure independent of length.
+
+Known limits of the model, all reported in the UI rather than hidden: it is purely
+elastic, so past yield it overstates pressure and force; it ignores surface
+roughness flattening, which costs a real joint a few µm of effective interference
+on a rough bore; and it ignores lead-in chamfers, misalignment, temperature and
+stress relaxation. Insertion and retention are both µ·p·πDL under this model, which
+is why the tool reports them as equal and invites a different µ for each.
+
 ## Standing caveat
 
 This is a calculator, not the standard. The numbers here are checked, but for
-anything going onto a production drawing, confirm against ISO 286 itself.
+anything going onto a production drawing, confirm against ISO 286 itself — and for
+a press fit that matters, confirm the force on a sample before committing to a
+press or a retention margin.

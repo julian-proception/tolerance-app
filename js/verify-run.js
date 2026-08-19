@@ -241,10 +241,14 @@ var VerifyRun = (function () {
     // Changing grade must hold the nominal diameter roughly steady rather than
     // jumping to an arbitrary class.
     var rows7 = HoleOptions.forGrade(3, 7, pinM6);
-    var near = HoleOptions.nearestIndex(rows7, rows6[jsIdx].meanDev);
-    g.ok(Math.abs(rows7[near].meanDev - rows6[jsIdx].meanDev) <= 3,
+    // Named nearIdx, not near: `var` is function-scoped, so calling it `near`
+    // silently overwrote the near() float-comparison helper for every check
+    // further down run(). Nothing below used it at the time, so the clash sat
+    // dormant until a later group did.
+    var nearIdx = HoleOptions.nearestIndex(rows7, rows6[jsIdx].meanDev);
+    g.ok(Math.abs(rows7[nearIdx].meanDev - rows6[jsIdx].meanDev) <= 3,
          'switching grade 6 -> 7 holds the nominal within 3 um',
-         rows7[near].label + ' at ' + rows7[near].meanDev + ' um',
+         rows7[nearIdx].label + ' at ' + rows7[nearIdx].meanDev + ' um',
          'within 3 um of ' + rows6[jsIdx].meanDev);
 
     g.ok(HoleOptions.indexOf(rows6, 'NOPE9') === -1,
@@ -527,6 +531,456 @@ var VerifyRun = (function () {
                    'bell curve labels even for ' + c[2] + '/' + c[1] + ' at ' + c[0] + ' mm');
       });
     }
+
+    /* ------------------------------------------------- materials CSV integrity */
+    g = group('Materials CSV');
+    (function () {
+      var list = Materials.all();
+      g.ok(list.length >= 2, 'the CSV supplies at least two materials',
+           list.length + ' materials', '>= 2');
+
+      // The two the brief asks for must be present under stable keys, because the
+      // URL hash refers to them by key.
+      ['al6061', 'steel4140'].forEach(function (key) {
+        g.ok(Materials.has(key), 'material "' + key + '" is present',
+             Materials.has(key) ? 'present' : 'MISSING', 'present');
+      });
+
+      // Spot-check the published values these rest on. If someone edits the CSV
+      // and fat-fingers a modulus, the forces silently change by a factor; these
+      // fixtures are the guard.
+      VerifyCases.materials.forEach(function (c) {
+        var m = Materials.get(c.key);
+        g.ok(near(m[c.field], c.value, c.tol || 1e-9),
+             c.key + ' ' + c.field, m[c.field], c.value, c.src);
+      });
+
+      // Every numeric column must actually be a finite number on every row.
+      var bad = [];
+      list.forEach(function (m) {
+        Materials.NUMERIC.forEach(function (f) {
+          if (typeof m[f] !== 'number' || !isFinite(m[f])) bad.push(m.key + '.' + f);
+        });
+      });
+      g.ok(bad.length === 0, 'every numeric column parses on every row',
+           bad.length ? bad.join(', ') : 'all numeric', 'all numeric');
+
+      // Yield below ultimate, and shear below tensile: a row failing either is a
+      // transcription error rather than an exotic material.
+      list.forEach(function (m) {
+        g.ok(m.yield_strength_mpa <= m.tensile_strength_mpa,
+             m.key + ' yield does not exceed UTS',
+             m.yield_strength_mpa + ' vs ' + m.tensile_strength_mpa, 'yield <= UTS');
+        g.ok(m.shear_strength_mpa < m.tensile_strength_mpa,
+             m.key + ' shear is below UTS',
+             m.shear_strength_mpa + ' vs ' + m.tensile_strength_mpa, 'shear < UTS');
+        g.ok(m.poissons_ratio > 0 && m.poissons_ratio < 0.5,
+             m.key + ' Poisson ratio is physical', m.poissons_ratio, '0 < v < 0.5');
+      });
+
+      // Every row has to say where its numbers came from. Deliberately a
+      // non-empty check rather than a length threshold: a legitimate citation can
+      // be short ("ASM Handbook Vol 2, p.1099"), and the quoted-comma parsing it
+      // would otherwise be standing in for is asserted directly further down.
+      list.forEach(function (m) {
+        g.ok(!!(m.source && m.source.trim()),
+             m.key + ' records a source for its numbers',
+             m.source ? m.source.slice(0, 40) : 'EMPTY', 'non-empty');
+      });
+
+      var parsed = Materials.parseCsv(
+        'key,name,v\n' +
+        'a,"Name, with comma","say ""hi"""\n');
+      g.ok(parsed.length === 1 && parsed[0].name === 'Name, with comma' &&
+           parsed[0].v === 'say "hi"',
+           'CSV parser handles quoted commas and doubled quotes',
+           parsed.length ? parsed[0].name + ' | ' + parsed[0].v : 'no rows',
+           'Name, with comma | say "hi"');
+
+      // Comment and blank lines must not become rows.
+      var withComments = Materials.parseCsv('# lead\n\nkey,name\n# mid\nx,Ex\n');
+      g.ok(withComments.length === 1 && withComments[0].key === 'x',
+           'CSV parser skips comment and blank lines',
+           withComments.length + ' row(s)', '1 row');
+
+      // A row with the wrong field count is a truncated edit, not a material.
+      var ragged = false;
+      try { Materials.parseCsv('a,b,c\n1,2\n'); } catch (e) { ragged = true; }
+      g.ok(ragged, 'CSV parser rejects a row with the wrong field count',
+           ragged ? 'threw' : 'accepted it', 'throws');
+
+      /*
+       * The schema layer must reject a bad material rather than letting a NaN
+       * modulus reach the UI, where it would silently produce NaN forces. Built by
+       * blanking one numeric column of a real row.
+       */
+      var head = 'key,' + Materials.NUMERIC.join(',');
+      function syntheticRow(blank) {
+        return Materials.NUMERIC.map(function (f) {
+          return f === blank ? '' : '1';
+        }).join(',');
+      }
+      g.ok((function () {
+        try {
+          Materials.parseMaterials(head + '\nok,' + syntheticRow(null) + '\n');
+          return true;
+        } catch (e) { return false; }
+      })(), 'a fully populated synthetic row is accepted', 'accepted', 'accepted');
+
+      var rejected = [];
+      Materials.NUMERIC.forEach(function (f) {
+        var threw = false;
+        try {
+          Materials.parseMaterials(head + '\nbad,' + syntheticRow(f) + '\n');
+        } catch (e) { threw = true; }
+        if (!threw) rejected.push(f);
+      });
+      g.ok(rejected.length === 0,
+           'a blank value in any numeric column is rejected',
+           rejected.length ? 'accepted blanks in: ' + rejected.join(', ')
+                           : 'all ' + Materials.NUMERIC.length + ' rejected',
+           'all rejected');
+
+      var noKey = false;
+      try { Materials.parseMaterials('key,youngs_modulus_gpa\n,205\n'); }
+      catch (e) { noKey = true; }
+      g.ok(noKey, 'a row with no key is rejected',
+           noKey ? 'threw' : 'accepted it', 'throws');
+
+      var unknown = false;
+      try { Materials.get('no-such-material'); } catch (e) { unknown = true; }
+      g.ok(unknown, 'asking for an unknown material key throws',
+           unknown ? 'threw' : 'returned something', 'throws');
+
+      // Friction pairing is the mean of the two self-mated values.
+      var mu = Materials.pairFriction('steel4140', 'al6061');
+      var want = (Materials.get('steel4140').friction_dry +
+                  Materials.get('al6061').friction_dry) / 2;
+      g.ok(near(mu, want), 'pair friction is the mean of the two self values',
+           mu, want);
+    })();
+
+    /* ------------------------------------------------------ press-fit mechanics */
+    g = group('Press-fit mechanics');
+    (function () {
+      var steel = Materials.get('steel4140');
+      var alu = Materials.get('al6061');
+
+      /*
+       * Hand-computed reference case. 25 mm interface, 50 um diametral
+       * interference, alloy steel in alloy steel, hub OD 50 mm, 25 mm engagement,
+       * mu 0.15. Worked from the Lame equations by hand:
+       *   Ci = (1 - 0.29)/205e9       = 3.463415e-12  1/Pa
+       *   Co = (5/3 + 0.29)/205e9     = 9.544715e-12  1/Pa
+       *   p  = 50e-6/(0.025 * 1.300813e-11) = 153.75 MPa
+       *   F  = 0.15 * 153.75e6 * pi * 0.025 * 0.025 = 45.28 kN
+       *   T  = F * 0.0125 = 566.0 N*m
+       */
+      var ref = PressFit.solve({
+        interferenceUm: 50, diameterMm: 25, pin: steel, hole: steel,
+        hubOuterMm: 50, lengthMm: 25, friction: 0.15
+      });
+      g.ok(near(ref.pressureMPa, 153.75, 0.01), 'contact pressure of the reference case',
+           ref.pressureMPa.toFixed(3) + ' MPa', '153.75 MPa',
+           'Lame, hand-computed');
+      g.ok(near(ref.insertionForceN / 1000, 45.28, 0.01),
+           'insertion force of the reference case',
+           (ref.insertionForceN / 1000).toFixed(3) + ' kN', '45.28 kN',
+           'mu*p*pi*D*L');
+      g.ok(near(ref.holdingTorqueNm, 566.04, 0.05),
+           'holding torque of the reference case',
+           ref.holdingTorqueNm.toFixed(2) + ' N*m', '566.04 N*m', 'F*D/2');
+      g.ok(near(ref.compliance.hub, 9.544715e-12, 1e-17),
+           'hub compliance term of the reference case',
+           ref.compliance.hub.toExponential(6), '9.544715e-12 1/Pa');
+      g.ok(near(ref.compliance.pin, 3.463415e-12, 1e-17),
+           'pin compliance term of the reference case',
+           ref.compliance.pin.toExponential(6), '3.463415e-12 1/Pa');
+
+      /*
+       * THE governing identity: the hub's hoop strain minus the pin's must equal
+       * the interference divided by the diameter, exactly. It says the two parts'
+       * deformations account for precisely the interference forced between them,
+       * so pressure and strain outputs cannot drift apart. Swept over materials,
+       * sizes and geometry.
+       */
+      var worst = 0, worstAt = '';
+      [[3, 5], [3, 0.4], [10, 12], [25, 50], [120, 200], [500, 900]]
+        .forEach(function (ds) {
+          [[steel, steel], [steel, alu], [alu, steel], [alu, alu]]
+            .forEach(function (pair) {
+              [[2 * ds[0], 0], [1.2 * ds[0], 0], [Infinity, 0],
+               [2 * ds[0], 0.5 * ds[0]]].forEach(function (geo) {
+                var r = PressFit.solve({
+                  interferenceUm: ds[1], diameterMm: ds[0],
+                  pin: pair[0], hole: pair[1],
+                  hubOuterMm: geo[0], pinBoreMm: geo[1],
+                  lengthMm: ds[0], friction: 0.2
+                });
+                var got = r.hole.hoopStrain - r.pin.hoopStrain;
+                var want = (ds[1] * 1e-6) / (ds[0] * 1e-3);
+                var rel = Math.abs(got - want) / Math.abs(want);
+                if (rel > worst) {
+                  worst = rel;
+                  worstAt = ds[0] + ' mm, ' + ds[1] + ' um, OD ' + geo[0] +
+                            ', bore ' + geo[1];
+                }
+              });
+            });
+        });
+      g.ok(worst < 1e-12,
+           'strain identity e_hub - e_pin = d/D holds over 96 combinations',
+           'worst relative error ' + worst.toExponential(2) +
+           (worstAt ? ' at ' + worstAt : ''), '< 1e-12');
+
+      // The same identity in displacement form: the two surfaces move by half the
+      // diametral interference between them.
+      g.ok(near(ref.hole.radialDispUm - ref.pin.radialDispUm, 25, 1e-9),
+           'the two surface movements sum to half the interference',
+           (ref.hole.radialDispUm - ref.pin.radialDispUm).toFixed(6) + ' um',
+           '25 um');
+
+      // Limit cases the closed form must reproduce exactly.
+      var inf = PressFit.solve({
+        interferenceUm: 50, diameterMm: 25, pin: steel, hole: steel,
+        hubOuterMm: Infinity, lengthMm: 25, friction: 0.15
+      });
+      g.ok(near(inf.compliance.hub, (1 + 0.29) / 205e9, 1e-18),
+           'an infinite hub collapses its compliance to (1+v)/E',
+           inf.compliance.hub.toExponential(6),
+           ((1 + 0.29) / 205e9).toExponential(6));
+      g.ok(near(inf.compliance.hubFactor, 1),
+           'an infinite hub has geometry factor 1', inf.compliance.hubFactor, 1);
+      // An infinite body cannot expand as freely as a finite hub, so it is stiffer
+      // and the same interference generates MORE pressure, not less.
+      g.ok(inf.pressureMPa > ref.pressureMPa,
+           'an infinite hub is stiffer, so pressure rises',
+           inf.pressureMPa.toFixed(2) + ' vs ' + ref.pressureMPa.toFixed(2) + ' MPa',
+           'infinite > finite');
+
+      g.ok(near(ref.compliance.pinFactor, 1),
+           'a solid pin has geometry factor 1', ref.compliance.pinFactor, 1);
+      g.ok(near(ref.compliance.pin, (1 - 0.29) / 205e9, 1e-18),
+           'a solid pin collapses its compliance to (1-v)/E',
+           ref.compliance.pin.toExponential(6), ((1 - 0.29) / 205e9).toExponential(6));
+
+      // A solid pin sits in uniform biaxial compression, sr = st = -p, so its von
+      // Mises equivalent stress is exactly p.
+      g.ok(near(ref.pin.vonMisesMPa, ref.pressureMPa, 1e-9),
+           'von Mises in a solid pin equals the contact pressure',
+           ref.pin.vonMisesMPa.toFixed(6) + ' MPa',
+           ref.pressureMPa.toFixed(6) + ' MPa');
+
+      // Hub goes into tension, pin into compression. Sign errors here would invert
+      // the whole yield story.
+      g.ok(ref.hole.hoopStrain > 0 && ref.pin.hoopStrain < 0,
+           'hub strains in tension and pin in compression',
+           's_hub=' + ref.hole.hoopStrain.toExponential(3) +
+           ' s_pin=' + ref.pin.hoopStrain.toExponential(3),
+           'hub > 0 > pin');
+      g.ok(ref.hole.hoopStressMPa > 0 && ref.pin.hoopStressMPa < 0,
+           'hoop stress is tensile in the hub and compressive in the pin',
+           ref.hole.hoopStressMPa.toFixed(1) + ' / ' + ref.pin.hoopStressMPa.toFixed(1),
+           'hub > 0 > pin');
+      g.ok(near(ref.hole.radialStressMPa, -ref.pressureMPa, 1e-9),
+           'radial stress at the interface is -p',
+           ref.hole.radialStressMPa.toFixed(3), (-ref.pressureMPa).toFixed(3));
+
+      // Scaling laws. Force is linear in both length and friction; pressure is
+      // linear in interference and independent of length.
+      function withLen(L) {
+        return PressFit.solve({
+          interferenceUm: 50, diameterMm: 25, pin: steel, hole: steel,
+          hubOuterMm: 50, lengthMm: L, friction: 0.15
+        });
+      }
+      g.ok(near(withLen(50).insertionForceN / ref.insertionForceN, 2, 1e-12),
+           'force is linear in engagement length',
+           (withLen(50).insertionForceN / ref.insertionForceN).toFixed(9), 2);
+      g.ok(near(withLen(50).pressureMPa, ref.pressureMPa, 1e-9),
+           'pressure does not depend on engagement length',
+           withLen(50).pressureMPa.toFixed(6), ref.pressureMPa.toFixed(6));
+      var dblMu = PressFit.solve({
+        interferenceUm: 50, diameterMm: 25, pin: steel, hole: steel,
+        hubOuterMm: 50, lengthMm: 25, friction: 0.30
+      });
+      g.ok(near(dblMu.insertionForceN / ref.insertionForceN, 2, 1e-12),
+           'force is linear in friction',
+           (dblMu.insertionForceN / ref.insertionForceN).toFixed(9), 2);
+      var dblInt = PressFit.solve({
+        interferenceUm: 100, diameterMm: 25, pin: steel, hole: steel,
+        hubOuterMm: 50, lengthMm: 25, friction: 0.15
+      });
+      g.ok(near(dblInt.pressureMPa / ref.pressureMPa, 2, 1e-12),
+           'pressure is linear in interference',
+           (dblInt.pressureMPa / ref.pressureMPa).toFixed(9), 2);
+      g.ok(near(ref.contactAreaMm2, Math.PI * 25 * 25, 1e-9),
+           'contact area is pi*D*L', ref.contactAreaMm2.toFixed(4) + ' mm2',
+           (Math.PI * 625).toFixed(4) + ' mm2');
+
+      // A softer hub yields to the pin instead of squeezing it, so an aluminium
+      // hub develops less pressure than a steel one at the same interference,
+      // while taking more of the strain.
+      var aluHub = PressFit.solve({
+        interferenceUm: 50, diameterMm: 25, pin: steel, hole: alu,
+        hubOuterMm: 50, lengthMm: 25, friction: 0.15
+      });
+      g.ok(aluHub.pressureMPa < ref.pressureMPa,
+           'an aluminium hub develops less pressure than a steel one',
+           aluHub.pressureMPa.toFixed(2) + ' vs ' + ref.pressureMPa.toFixed(2) + ' MPa',
+           'aluminium < steel');
+      g.ok(aluHub.hole.hoopStrain > ref.hole.hoopStrain,
+           'the aluminium hub takes more of the strain',
+           aluHub.hole.hoopStrain.toExponential(3) + ' vs ' +
+           ref.hole.hoopStrain.toExponential(3), 'aluminium > steel');
+
+      // Boring the pin out makes it more compliant, which drops the pressure.
+      var hollow = PressFit.solve({
+        interferenceUm: 50, diameterMm: 25, pin: steel, hole: steel,
+        hubOuterMm: 50, pinBoreMm: 15, lengthMm: 25, friction: 0.15
+      });
+      g.ok(hollow.pressureMPa < ref.pressureMPa,
+           'a bored pin is more compliant, so pressure drops',
+           hollow.pressureMPa.toFixed(2) + ' vs ' + ref.pressureMPa.toFixed(2) + ' MPa',
+           'hollow < solid');
+      g.ok(hollow.compliance.pinFactor > 1,
+           'a bored pin has geometry factor above 1',
+           hollow.compliance.pinFactor.toFixed(4), '> 1');
+
+      // A thinner hub wall is more compliant, so it too drops the pressure.
+      var thin = PressFit.solve({
+        interferenceUm: 50, diameterMm: 25, pin: steel, hole: steel,
+        hubOuterMm: 27, lengthMm: 25, friction: 0.15
+      });
+      g.ok(thin.pressureMPa < ref.pressureMPa,
+           'a thin-walled hub develops less pressure',
+           thin.pressureMPa.toFixed(2) + ' vs ' + ref.pressureMPa.toFixed(2) + ' MPa',
+           'thin < thick');
+
+      // Clearance and exactly-zero interference must produce nothing at all, not a
+      // negative force.
+      [-5, 0].forEach(function (i) {
+        var c = PressFit.solve({
+          interferenceUm: i, diameterMm: 25, pin: steel, hole: steel,
+          hubOuterMm: 50, lengthMm: 25, friction: 0.15
+        });
+        g.ok(!c.engaged && c.pressureMPa === 0 && c.insertionForceN === 0 &&
+             c.holdingTorqueNm === 0 && c.hole.hoopStrain === 0 &&
+             c.pin.hoopStrain === 0 && c.deltaTHubC === 0,
+             'interference of ' + i + ' um produces no pressure, force or strain',
+             'p=' + c.pressureMPa + ' F=' + c.insertionForceN +
+             ' e=' + c.hole.hoopStrain, 'all zero');
+      });
+
+      // Shrink-fit temperature rise: dT = d/(alpha*D). 50 um on 25 mm of 4140 at
+      // 12.3 um/m/K gives 50000/(12.3*25) = 162.6 K.
+      g.ok(near(ref.deltaTHubC, 50000 / (12.3 * 25), 1e-6),
+           'shrink-fit temperature rise is d/(alpha*D)',
+           ref.deltaTHubC.toFixed(2) + ' C', (50000 / (12.3 * 25)).toFixed(2) + ' C',
+           'linear expansion');
+
+      // Yield reporting must agree with the utilisation ratio it is derived from.
+      var over = PressFit.solve({
+        interferenceUm: 400, diameterMm: 25, pin: steel, hole: alu,
+        hubOuterMm: 50, lengthMm: 25, friction: 0.15
+      });
+      g.ok(over.hole.yields === (over.hole.yieldUtilisation > 1),
+           'the yield flag agrees with the utilisation ratio',
+           over.hole.yields + ' at ' + over.hole.yieldUtilisation.toFixed(3),
+           'flag == (util > 1)');
+      g.ok(over.hole.yields,
+           '400 um on a 25 mm aluminium hub is reported as past yield',
+           over.hole.vonMisesMPa.toFixed(0) + ' MPa vs ' +
+           alu.yield_strength_mpa + ' MPa yield', 'yields');
+      g.ok(near(ref.hole.yieldStrain, 655e6 / 205e9, 1e-15),
+           'yield strain is yield stress over E',
+           ref.hole.yieldStrain.toExponential(6),
+           (655e6 / 205e9).toExponential(6));
+
+      // Bad geometry must be rejected rather than producing a nonsense number.
+      [{ o: { pinBoreMm: 25 }, what: 'a pin bore equal to the pin diameter' },
+       { o: { pinBoreMm: 30 }, what: 'a pin bore larger than the pin diameter' },
+       { o: { hubOuterMm: 25 }, what: 'a hub outer diameter equal to the bore' },
+       { o: { hubOuterMm: 20 }, what: 'a hub outer diameter below the bore' },
+       { o: { diameterMm: 0 }, what: 'a zero interface diameter' }
+      ].forEach(function (bad) {
+        var base = {
+          interferenceUm: 50, diameterMm: 25, pin: steel, hole: steel,
+          hubOuterMm: 50, lengthMm: 25, friction: 0.15
+        };
+        for (var k in bad.o) base[k] = bad.o[k];
+        var threw = false, msg = '';
+        try { PressFit.solve(base); } catch (e) { threw = true; msg = e.message; }
+        g.ok(threw, bad.what + ' is rejected',
+             threw ? 'threw: ' + msg : 'returned a value', 'throws');
+      });
+
+      /* ------------------------------------------------------- the sigma range */
+      var pin3 = ISO286.limits(3, 'm6');
+      var hole3 = ISO286.limits(3, 'JS6');
+      var st3 = Fits.rss(pin3, hole3, { k: 3 });
+      var rng = PressFit.range(st3, 1, {
+        diameterMm: 3, pin: steel, hole: alu,
+        hubOuterMm: 6, lengthMm: 3, friction: 0.215
+      });
+      g.ok(near(rng.nominal.interferenceUm, st3.mean, 1e-12),
+           'the nominal column uses the mean interference',
+           rng.nominal.interferenceUm, st3.mean);
+      g.ok(near(rng.high.interferenceUm - rng.nominal.interferenceUm, st3.sigma, 1e-12),
+           'the +1 sigma column is one sigma above nominal',
+           (rng.high.interferenceUm - rng.nominal.interferenceUm).toFixed(6) + ' um',
+           st3.sigma.toFixed(6) + ' um');
+      g.ok(near(rng.nominal.interferenceUm - rng.low.interferenceUm, st3.sigma, 1e-12),
+           'the -1 sigma column is one sigma below nominal',
+           (rng.nominal.interferenceUm - rng.low.interferenceUm).toFixed(6) + ' um',
+           st3.sigma.toFixed(6) + ' um');
+      g.ok(rng.low.interferenceUm < rng.nominal.interferenceUm &&
+           rng.nominal.interferenceUm < rng.high.interferenceUm,
+           'the three columns are ordered low < nominal < high',
+           [rng.low, rng.nominal, rng.high].map(function (c) {
+             return c.interferenceUm.toFixed(2);
+           }).join(' < '), 'ascending');
+      g.ok(rng.high.pressureMPa > rng.nominal.pressureMPa &&
+           rng.nominal.pressureMPa >= rng.low.pressureMPa,
+           'pressure rises with the sigma column',
+           [rng.low, rng.nominal, rng.high].map(function (c) {
+             return c.pressureMPa.toFixed(1);
+           }).join(' <= '), 'ascending');
+
+      // A wider sigma multiplier must widen the band proportionally.
+      var rng2 = PressFit.range(st3, 2, {
+        diameterMm: 3, pin: steel, hole: alu,
+        hubOuterMm: 6, lengthMm: 3, friction: 0.215
+      });
+      g.ok(near(rng2.high.interferenceUm - st3.mean,
+                2 * (rng.high.interferenceUm - st3.mean), 1e-12),
+           'doubling the sigma multiplier doubles the band',
+           (rng2.high.interferenceUm - st3.mean).toFixed(6),
+           (2 * (rng.high.interferenceUm - st3.mean)).toFixed(6));
+
+      // A zero multiplier collapses all three columns onto the nominal.
+      var rng0 = PressFit.range(st3, 0, {
+        diameterMm: 3, pin: steel, hole: alu,
+        hubOuterMm: 6, lengthMm: 3, friction: 0.215
+      });
+      g.ok(near(rng0.low.interferenceUm, rng0.high.interferenceUm, 1e-12) &&
+           near(rng0.low.interferenceUm, st3.mean, 1e-12),
+           'a zero sigma multiplier collapses the range onto the nominal',
+           rng0.low.interferenceUm + ' / ' + rng0.high.interferenceUm,
+           st3.mean + ' both');
+
+      // A clearance fit across the whole band must report nothing engaged, which
+      // is what drives the "nothing to press" panel.
+      var clr = ISO286.limits(3, 'H7');
+      var clrPin = ISO286.limits(3, 'g6');
+      var clrRng = PressFit.range(Fits.rss(clrPin, clr, { k: 3 }), 1, {
+        diameterMm: 3, pin: steel, hole: alu,
+        hubOuterMm: 6, lengthMm: 3, friction: 0.215
+      });
+      g.ok(!clrRng.high.engaged && !clrRng.nominal.engaged,
+           'H7/g6 at 3 mm reports no engagement anywhere in the range',
+           'high engaged=' + clrRng.high.engaged, 'not engaged');
+    })();
 
     return { groups: groups, pass: pass, fail: fail };
   }

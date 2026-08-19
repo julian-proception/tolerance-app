@@ -10,7 +10,7 @@
 
 <header class="bar">
   <h1>Hole &amp; Pin Fit</h1>
-  <span class="bar-sub">ISO 286 limits, fits &amp; RSS stackup</span>
+  <span class="bar-sub">ISO 286 limits, fits, RSS stackup &amp; press-fit forces</span>
   <span class="bar-gap"></span>
   <p id="err" class="bar-err" hidden></p>
   <a class="bar-link" href="verify.html">verify</a>
@@ -171,12 +171,99 @@
       </details>
     </section>
   </div>
+
+  <!-- ================================================== press fit: materials -->
+  <div class="col col-press">
+
+    <section class="card">
+      <h2>Press fit<b id="pressPair"></b></h2>
+
+      <div class="ctrl">
+        <label class="ctrl-lab" for="pinMat">Pin</label>
+        <span class="ctrl-in ctrl-in-sel">
+          <select id="pinMat" aria-label="Pin material"></select>
+        </span>
+      </div>
+
+      <div class="ctrl">
+        <label class="ctrl-lab" for="holeMat">Hole</label>
+        <span class="ctrl-in ctrl-in-sel">
+          <select id="holeMat" aria-label="Hole material"></select>
+        </span>
+      </div>
+
+      <div class="geo">
+        <label for="engLen"><span>Engagement</span>
+          <input type="number" id="engLen" step="0.1" min="0" inputmode="decimal">
+          <i>mm</i>
+        </label>
+        <label for="hubOd"><span>Hub outer Ø</span>
+          <input type="number" id="hubOd" step="0.1" min="0" inputmode="decimal">
+          <i>mm</i>
+        </label>
+        <label for="pinBore"><span>Pin bore Ø</span>
+          <input type="number" id="pinBore" step="0.1" min="0" inputmode="decimal">
+          <i>mm</i>
+        </label>
+        <label for="fric"><span>Friction µ</span>
+          <input type="number" id="fric" step="0.01" min="0" inputmode="decimal">
+        </label>
+      </div>
+
+      <p class="geo-note" id="geoNote"></p>
+
+      <details class="more">
+        <summary>material data &amp; assumptions</summary>
+        <div class="more-body">
+          <div id="matTable"></div>
+          <hr>
+          <p class="fine"><strong>Model.</strong> Lamé thick-walled cylinder, the
+            standard elastic solution for a shaft pressed into a hub. Contact
+            pressure follows from the interference and the two parts' stiffness and
+            geometry; force is then µ·p·πDL, and holding torque is that force on
+            the radius.</p>
+          <p class="fine"><strong>Defaults.</strong> Engagement length and hub
+            outer diameter track the pin diameter at 1× and 2× until you type over
+            them; the pin is solid; friction is the mean of the two materials'
+            dry self-mated values. Every one of those is an override, and friction
+            is the softest number here — lubrication roughly halves it, galling
+            raises it.</p>
+          <p class="fine"><strong>Not modelled:</strong> plasticity once von Mises
+            passes yield, surface roughness flattening (a rough bore loses a few µm
+            of real interference), lead-in chamfers, misalignment, temperature and
+            stress relaxation. Treat the numbers as estimates for sizing a press
+            and a retention margin, not as a substitute for a test.</p>
+          <p class="fine">Material values come from <code>data/materials.csv</code>
+            — edit that one file and rerun
+            <code>tools/build-materials.sh</code> to add a material. Sources are
+            recorded per row there and in <code>REFERENCES.md</code>.</p>
+        </div>
+      </details>
+    </section>
+
+    <section class="card card-press-out">
+      <h2>Forces &amp; strain
+        <span class="sig">±<input type="number" id="nSigma" step="0.5" min="0"
+               max="6" aria-label="Sigma range">σ</span>
+      </h2>
+
+      <div id="pressOut"></div>
+
+      <details class="more more-up">
+        <summary>displacement, shrink fit &amp; yield detail</summary>
+        <div class="more-body"><div id="pressMore"></div></div>
+      </details>
+    </section>
+  </div>
 </main>
 
 <script src="js/iso286.js"></script>
 <script src="js/fits.js"></script>
 <script src="js/suggest.js"></script>
 <script src="js/viz.js"></script>
+<script src="js/materials-data.js"></script>
+<script src="js/materials.js"></script>
+<script src="js/press.js"></script>
 <script src="js/app.js"></script>
 </body>
 </html>

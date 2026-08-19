@@ -10,6 +10,9 @@ load('js/iso286.js');
 load('js/fits.js');
 load('js/suggest.js');
 load('js/viz.js');
+load('js/materials-data.js');
+load('js/materials.js');
+load('js/press.js');
 load('js/verify-cases.js');
 load('js/verify-run.js');
 
@@ -104,7 +107,8 @@ var result = VerifyRun.run();
      'track bands carry a fit-category class', 'classed', 'classed');
 
   ['pinReadout', 'holeReadout', 'pinMore', 'holeMore', 'vizHost', 'bellCurve',
-   'rssTable', 'trueScaleView', 'vizLegend'].forEach(function (id) {
+   'rssTable', 'trueScaleView', 'vizLegend', 'pressOut', 'pressMore',
+   'matTable'].forEach(function (id) {
     ok(html_(id).length > 0, '#' + id + ' is populated on first render',
        html_(id).length + ' chars', 'more than 0 chars');
   });
@@ -122,10 +126,53 @@ var result = VerifyRun.run();
      /3\.0030/.test(hr) && /3\.0000/.test(hr) && /2\.9970/.test(hr)
        ? 'all three' : hr.slice(0, 120), 'all three');
 
+  /* ---------------------------------------------------------- press-fit panel */
+  /*
+   * The default 3 mm m6/JS6 is a transition fit with a +5 um mean, so the press
+   * panel must render real forces rather than the "nothing to press" state. These
+   * assertions are about the panel being wired up at all -- the mechanics
+   * themselves are checked numerically in the Press-fit mechanics group.
+   */
+  var pressOut = html_('pressOut');
+  ok(/Contact pressure/.test(pressOut), 'the press panel renders a contact pressure row',
+     /Contact pressure/.test(pressOut) ? 'present' : pressOut.slice(0, 90), 'present');
+  ok(/Insertion force/.test(pressOut) && /Holding force/.test(pressOut) &&
+     /Holding torque/.test(pressOut),
+     'the press panel renders insertion, holding and torque rows', 'present', 'present');
+  ok((pressOut.match(/Hoop strain/g) || []).length === 2,
+     'hoop strain appears once for the pin and once for the hole',
+     (pressOut.match(/Hoop strain/g) || []).length, 2);
+  ok(/nominal/.test(pressOut) && /σ<\/th>/.test(pressOut),
+     'the press panel labels the nominal and sigma columns',
+     /nominal/.test(pressOut) ? 'present' : pressOut.slice(0, 120), 'present');
+  ok(/Alloy steel 4140/.test(pressOut) && /Aluminium 6061/.test(pressOut),
+     'the press panel names both selected materials', 'present', 'present');
+  ok(/4140/.test(txt('pressPair')) && /6061/.test(txt('pressPair')),
+     'the press heading shows the material pair', txt('pressPair') || 'empty',
+     '4140 -> 6061');
+
+  // The geometry fields must arrive populated from the diameter rather than blank,
+  // since a blank field means "no override" and would read as an empty form.
+  ok((els.engLen || {}).value === '3', 'engagement length defaults to 1x the diameter',
+     (els.engLen || {}).value, '3');
+  ok((els.hubOd || {}).value === '6', 'hub outer diameter defaults to 2x the diameter',
+     (els.hubOd || {}).value, '6');
+  ok((els.pinBore || {}).value === '0', 'pin bore defaults to solid',
+     (els.pinBore || {}).value, '0');
+  ok((els.fric || {}).value === '0.215',
+     'friction defaults to the mean of the two materials',
+     (els.fric || {}).value, '0.215');
+  ok((els.nSigma || {}).value === '1', 'the sigma range defaults to 1',
+     (els.nSigma || {}).value, '1');
+
   var all = pr + hr + fn + track + html_('vizHost') + html_('rssTable') +
-            html_('bellCurve') + html_('pinMore') + html_('holeMore');
-  ok(!/NaN|undefined/.test(all), 'rendered markup contains no NaN or undefined',
-     /NaN|undefined/.test(all) ? 'FOUND' : 'clean', 'clean');
+            html_('bellCurve') + html_('pinMore') + html_('holeMore') +
+            pressOut + html_('pressMore') + html_('matTable');
+  ok(!/NaN|undefined|Infinity/.test(all),
+     'rendered markup contains no NaN, undefined or Infinity',
+     /NaN|undefined|Infinity/.test(all)
+       ? 'FOUND: ' + (all.match(/.{0,40}(NaN|undefined|Infinity).{0,20}/) || [''])[0]
+       : 'clean', 'clean');
 
   // The diameters view is the default, per the UI feedback.
   ok(els.vizDia && els.vizDia.className === 'on',

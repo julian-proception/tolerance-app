@@ -97,7 +97,7 @@ body {
 
 .stage {
   display: grid;
-  grid-template-columns: 336px minmax(0, 1fr);
+  grid-template-columns: 336px minmax(0, 1fr) 322px;
   gap: 11px;
   padding: 11px 14px 14px;
   min-height: 0;
@@ -112,6 +112,7 @@ body {
   overflow-y: auto; overflow-x: hidden;
 }
 .col-view { grid-template-rows: minmax(0, 1fr) auto; overflow-y: auto; overflow-x: hidden; }
+.col-press { grid-template-rows: auto minmax(0, 1fr); }
 
 .card {
   position: relative;               /* anchors the .more overlay */
@@ -357,13 +358,138 @@ table.mini td { font-family: var(--mono); text-align: right; }
 .bell-host { min-height: 0; }
 .bell-host .viz-svg { width: 100%; height: auto; }
 
+/* ------------------------------------------------------------ press fit panel */
+
+/* A select on its own needs the same frame the number inputs get, but without the
+   two-up borders that .ctrl-in-pair applies. */
+.ctrl-in-sel { padding: 0; }
+.ctrl-in-sel select {
+  flex: 1; min-width: 0;
+  background: var(--bg); border: 1px solid var(--rule); border-radius: 7px;
+  color: inherit; font: 12.5px/1 -apple-system, BlinkMacSystemFont, sans-serif;
+  padding: 7px 5px; outline: none;
+}
+.ctrl-in-sel select:focus { border-color: var(--accent); }
+
+/* Geometry overrides: a 2x2 grid of small labelled numbers. */
+.geo {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 5px 8px;
+  margin-top: 3px;
+}
+/* Caption above, input below, unit tucked inside the input's right edge -- which
+   keeps all four fields the same width regardless of whether they carry a unit. */
+.geo label { display: block; position: relative; }
+.geo label > span {
+  display: block; margin-bottom: 2px;
+  font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em;
+  color: var(--ink-faint); font-weight: 650;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.geo input {
+  background: var(--bg); border: 1px solid var(--rule); border-radius: 6px;
+  color: inherit; font: 12.5px/1 var(--mono);
+  padding: 5px 24px 5px 6px; width: 100%; min-width: 0; outline: none;
+}
+.geo input:focus { border-color: var(--accent); }
+.geo label > i {
+  position: absolute; right: 6px; bottom: 6px;
+  font-style: normal; font-size: 10.5px; color: var(--ink-faint);
+  pointer-events: none;
+}
+.geo-note {
+  margin: 7px 0 0; font-size: 10.5px; color: var(--ink-soft);
+  font-family: var(--mono);
+}
+
+/* Sigma-range spinner in the results heading. */
+.sig {
+  margin-left: auto; display: inline-flex; align-items: center; gap: 1px;
+  font-family: var(--mono); font-size: 12px; letter-spacing: 0;
+  text-transform: none; color: var(--ink-soft);
+}
+.sig input {
+  width: 40px; background: var(--bg); border: 1px solid var(--rule);
+  border-radius: 5px; color: inherit; font: 12px var(--mono);
+  padding: 2px 4px; outline: none; text-align: right;
+}
+.sig input:focus { border-color: var(--accent); }
+
+/* The results table is a fixed number of rows, but the two warning paragraphs are
+   conditional. Let the results area scroll inside the card rather than overflow it,
+   so a warning appearing can never break the no-scroll guarantee. */
+.card-press-out { min-height: 0; }
+.card-press-out > #pressOut { flex: 1; min-height: 0; overflow-y: auto; }
+
+/* The results table: one label column plus the low / nominal / high sigma cases. */
+table.press {
+  border-collapse: collapse; width: 100%;
+  font-size: 12px; table-layout: fixed;
+}
+table.press th, table.press td {
+  padding: 2.5px 0; border-bottom: 1px solid var(--rule-soft);
+}
+table.press thead th {
+  font-size: 9.5px; text-transform: uppercase; letter-spacing: 0.05em;
+  color: var(--ink-faint); font-weight: 650; text-align: right;
+  padding-bottom: 4px;
+}
+table.press thead th:first-child { text-align: left; }
+table.press tbody th {
+  font-weight: 400; color: var(--ink-soft); text-align: left;
+  font-size: 11.5px;
+}
+table.press td {
+  font-family: var(--mono); text-align: right; font-size: 12px;
+}
+/* The nominal column is the answer; the sigma columns are context. */
+table.press .c-nom { font-weight: 650; color: var(--ink); }
+table.press .c-off { color: var(--ink-soft); }
+table.press .u { color: var(--ink-faint); font-size: 10px; padding-left: 4px;
+                 width: 34px; text-align: left; font-family: var(--mono); }
+
+/* Section dividers naming which part the following rows belong to. */
+table.press tr.part th {
+  padding-top: 7px; font-size: 9.5px; text-transform: uppercase;
+  letter-spacing: 0.06em; font-weight: 700; border-bottom-color: var(--rule);
+}
+table.press tr.part.is-pin th { color: var(--pin-dark); }
+table.press tr.part.is-hole th { color: var(--hole-dark); }
+table.press tr.hi td { color: var(--int); font-weight: 650; }
+
+.press-none {
+  font-size: 12px; color: var(--ink-soft);
+  background: var(--cle-bg); border-radius: 7px; padding: 9px 11px;
+}
+.press-none b { color: var(--cle); }
+.press-warn {
+  margin: 8px 0 0; font-size: 11px; color: var(--int);
+  background: var(--int-bg); padding: 5px 8px; border-radius: 6px;
+}
+.press-foot {
+  margin: 8px 0 0; font-size: 11px; color: var(--ink-soft);
+  display: flex; justify-content: space-between; gap: 8px;
+}
+.press-foot span { font-family: var(--mono); }
+
 /* -------------------------------------------------- small screens: allow scroll */
 
-@media (max-width: 940px), (max-height: 620px) {
+/* The three-column single-screen layout needs the width for it. Below that the
+   page scrolls rather than crushing a panel of numbers into illegibility. */
+@media (max-width: 1240px), (max-height: 660px) {
   body { overflow: auto; grid-template-rows: auto auto; height: auto; }
-  .stage { grid-template-columns: 1fr; }
-  .col-controls, .col-view { grid-template-rows: auto auto; }
+  .stage { grid-template-columns: 336px minmax(0, 1fr); }
+  .col-controls, .col-view, .col-press { grid-template-rows: auto auto; }
+  /* The press column drops below and lays its two cards out side by side. */
+  .col-press { grid-column: 1 / -1; grid-template-columns: 1fr 1fr;
+               grid-template-rows: auto; align-items: start; }
   .viz-host { min-height: 300px; }
+}
+
+@media (max-width: 940px) {
+  .stage { grid-template-columns: 1fr; }
+  .col-press { grid-template-columns: 1fr; }
   .more[open] > .more-body { position: static; max-height: none; box-shadow: none;
                              left: auto; right: auto; bottom: auto; }
 }

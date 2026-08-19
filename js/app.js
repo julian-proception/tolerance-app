@@ -19,8 +19,42 @@
     holeLetter: 'JS', holeGrade: 6,
     vizMode: 'dia',
     k: 3, shift: 0, target: 0, exagSlider: 50,
-    exagRef: null, exagBasis: null   // pinned factor and the diameter it belongs to
+    exagRef: null, exagBasis: null,  // pinned factor and the diameter it belongs to
+
+    /* Press fit. A steel pin in an aluminium hub is the common case, so it is the
+       default pairing. The four geometry fields are null until the user types in
+       them, which means "track the diameter" -- see engLenMm() and friends. A
+       stale 25 mm engagement length left behind after the diameter changed to 3 mm
+       would quietly produce forces an order of magnitude out. */
+    pinMat: 'steel4140', holeMat: 'al6061',
+    engLen: null, hubOd: null, pinBore: null, fric: null,
+    nSigma: 1
   };
+
+  /* -------------------------------------------------- press-fit derived inputs */
+
+  /** Engagement length, defaulting to 1x the diameter. */
+  function engLenMm() {
+    return state.engLen === null ? state.dia : state.engLen;
+  }
+
+  /** Hub outer diameter, defaulting to 2x the diameter (a stout but not
+      infinite hub). */
+  function hubOdMm() {
+    return state.hubOd === null ? 2 * state.dia : state.hubOd;
+  }
+
+  /** Pin bore, defaulting to solid. */
+  function pinBoreMm() {
+    return state.pinBore === null ? 0 : state.pinBore;
+  }
+
+  /** Friction, defaulting to the estimate from the material pair. */
+  function fricVal() {
+    return state.fric === null
+      ? Materials.pairFriction(state.pinMat, state.holeMat)
+      : state.fric;
+  }
 
   /* ------------------------------------------------------------- formatting */
 
@@ -87,6 +121,300 @@
       '<p class="fine"><strong>Basic size</strong> is the stated diameter the ' +
       'deviations apply to; <strong>nominal</strong> here is ' +
       'the middle of the tolerance band, which is where the solid circle is drawn.</p>';
+    return html;
+  }
+
+  /* --------------------------------------------------------------- press fit */
+
+  /**
+   * Fixed significant figures without ever falling back to exponent notation,
+   * which would be unreadable in a table of forces.
+   */
+  function sig(v, n) {
+    if (!isFinite(v)) return '—';
+    if (v === 0) return '0';
+    var mag = Math.floor(Math.log10(Math.abs(v)));
+    return v.toFixed(Math.max(0, Math.min(6, n - 1 - mag)));
+  }
+
+  /**
+   * Format a number for an input field or an inline note. Viz.fmt is not used for
+   * these: it clamps anything under 0.05 to zero, which is right for micrometre
+   * deviations but would silently show a 0.03 mm hub wall or a µ of 0.04 as "0".
+   */
+  function numIn(v) {
+    if (!isFinite(v)) return '';
+    return String(Math.round(v * 1e4) / 1e4);
+  }
+
+  /** Write a value into an input unless the user is currently editing it. */
+  function setUnlessFocused(id, value) {
+    var el = $(id);
+    if (document.activeElement === el) return;
+    el.value = value;
+  }
+
+  /**
+   * Choose one unit for a whole row from its largest value, so a row never mixes
+   * N with kN. Returns { unit, f } where f formats one value into that unit.
+   */
+  function rowScale(values, ladder) {
+    var m = 0;
+    values.forEach(function (v) { m = Math.max(m, Math.abs(v)); });
+    for (var i = ladder.length - 1; i >= 0; i--) {
+      if (m >= ladder[i].min || i === 0) {
+        var step = ladder[i];
+        return {
+          unit: step.unit,
+          f: function (v) { return sig(v / step.div, 3); }
+        };
+      }
+    }
+  }
+
+  var FORCE_LADDER = [
+    { min: 0, unit: 'N', div: 1 },
+    { min: 1000, unit: 'kN', div: 1000 }
+  ];
+  var TORQUE_LADDER = [
+    { min: 0, unit: 'N·mm', div: 0.001 },
+    { min: 1, unit: 'N·m', div: 1 }
+  ];
+
+  function fillMatSelects() {
+    var opts = Materials.all().map(function (m) {
+      return { key: m.key, text: m.name + ' — ' + m.condition };
+    });
+    [['pinMat', 'pinMat'], ['holeMat', 'holeMat']].forEach(function (pair) {
+      var id = pair[0], key = pair[1];
+      if (!Materials.has(state[key])) state[key] = Materials.defaultKey();
+      $(id).innerHTML = opts.map(function (o) {
+        return '<option value="' + o.key + '"' +
+          (o.key === state[key] ? ' selected' : '') + '>' + esc(o.text) + '</option>';
+      }).join('');
+    });
+  }
+
+  /** Short name for the heading, e.g. "4140 → 6061". */
+  function shortName(key) {
+    var n = Materials.get(key).name;
+    var m = n.match(/(\d{4})/);
+    return m ? m[1] : n;
+  }
+
+  /**
+   * The property table shown behind "material data & assumptions". Both selected
+   * materials side by side, with the provenance of each row's numbers underneath.
+   */
+  function matTable() {
+    var pin = Materials.get(state.pinMat), hole = Materials.get(state.holeMat);
+    var rows = [
+      ['Condition', pin.condition, hole.condition],
+      ['Density', pin.density_kg_m3 + ' kg/m³', hole.density_kg_m3 + ' kg/m³'],
+      ['Elastic modulus E', pin.youngs_modulus_gpa + ' GPa', hole.youngs_modulus_gpa + ' GPa'],
+      ['Poisson ν', pin.poissons_ratio, hole.poissons_ratio],
+      ['Tensile (UTS)', pin.tensile_strength_mpa + ' MPa', hole.tensile_strength_mpa + ' MPa'],
+      ['Yield', pin.yield_strength_mpa + ' MPa', hole.yield_strength_mpa + ' MPa'],
+      ['Shear (ultimate)', pin.shear_strength_mpa + ' MPa', hole.shear_strength_mpa + ' MPa'],
+      ['Expansion α', pin.cte_um_m_k + ' µm/m·K', hole.cte_um_m_k + ' µm/m·K'],
+      ['Friction (self, dry)', pin.friction_dry, hole.friction_dry]
+    ];
+    var html = '<table class="mini"><thead><tr><th></th>' +
+      '<th style="text-align:right">pin</th>' +
+      '<th style="text-align:right">hole</th></tr></thead><tbody>';
+    rows.forEach(function (r) {
+      html += '<tr><th>' + r[0] + '</th><td>' + esc(r[1]) + '</td><td>' +
+        esc(r[2]) + '</td></tr>';
+    });
+    html += '</tbody></table>';
+    html += '<p class="fine"><strong>' + esc(pin.name) + '</strong> — ' +
+      esc(pin.source) + '</p>';
+    if (hole.key !== pin.key) {
+      html += '<p class="fine"><strong>' + esc(hole.name) + '</strong> — ' +
+        esc(hole.source) + '</p>';
+    }
+    return html;
+  }
+
+  /**
+   * The forces-and-strain table. `stats` is the Fits.rss() result, which supplies
+   * the mean interference and its sigma; everything else comes from the material
+   * and geometry inputs.
+   */
+  function renderPress(stats) {
+    $('pressPair').textContent = shortName(state.pinMat) + ' → ' + shortName(state.holeMat);
+    $('matTable').innerHTML = matTable();
+
+    // Reflect the derived defaults back into the inputs, so the fields always show
+    // the numbers actually being used rather than going blank. The focused field is
+    // skipped: rewriting it mid-keystroke would fight the user, and would make
+    // clearing a field to drop the override impossible because the derived value
+    // would reappear instantly.
+    setUnlessFocused('engLen', numIn(engLenMm()));
+    setUnlessFocused('hubOd', numIn(hubOdMm()));
+    setUnlessFocused('pinBore', numIn(pinBoreMm()));
+    setUnlessFocused('fric', numIn(fricVal()));
+    setUnlessFocused('nSigma', numIn(state.nSigma));
+
+    var opts = {
+      diameterMm: state.dia,
+      pin: Materials.get(state.pinMat),
+      hole: Materials.get(state.holeMat),
+      pinBoreMm: pinBoreMm(),
+      hubOuterMm: hubOdMm(),
+      lengthMm: engLenMm(),
+      friction: fricVal()
+    };
+
+    var wall = (hubOdMm() - state.dia) / 2;
+    $('geoNote').textContent =
+      'L/D ' + sig(engLenMm() / state.dia, 3) +
+      ' · hub wall ' + sig(wall, 3) + ' mm' +
+      ' · µ ' + numIn(fricVal()) +
+      (state.fric === null ? ' (est.)' : ' (set)');
+
+    var r;
+    try {
+      r = PressFit.range(stats, state.nSigma, opts);
+    } catch (e) {
+      $('pressOut').innerHTML = '<p class="press-warn">' + esc(e.message) + '</p>';
+      $('pressMore').innerHTML = '';
+      return;
+    }
+
+    var cases = [r.low, r.nominal, r.high];
+
+    // Nothing to press: the entire +/- n sigma range falls together.
+    if (!r.high.engaged) {
+      $('pressOut').innerHTML =
+        '<p class="press-none"><b>No interference anywhere in this range.</b> ' +
+        'Even the tightest ±' + numIn(r.nSigma) + 'σ assembly clears by ' +
+        sig(Math.abs(r.high.interferenceUm), 3) + ' µm, so there is no contact ' +
+        'pressure, no press force and no retention. Move the hole nominal down ' +
+        'to reach interference.</p>';
+      $('pressMore').innerHTML =
+        '<p class="fine">Forces and strain appear once the interference range ' +
+        'reaches positive values. Interference is pin size − hole size.</p>';
+      return;
+    }
+
+    function vals(get) { return cases.map(get); }
+
+    function row(label, values, scale, cls) {
+      var f = scale.f;
+      return '<tr' + (cls ? ' class="' + cls + '"' : '') + '><th>' + label + '</th>' +
+        '<td class="c-off">' + f(values[0]) + '</td>' +
+        '<td class="c-nom">' + f(values[1]) + '</td>' +
+        '<td class="c-off">' + f(values[2]) + '</td>' +
+        '<td class="u">' + scale.unit + '</td></tr>';
+    }
+
+    var plain = function (unit, n) {
+      return { unit: unit, f: function (v) { return sig(v, n || 3); } };
+    };
+
+    var forceVals = vals(function (c) { return c.insertionForceN; });
+    var torqueVals = vals(function (c) { return c.holdingTorqueNm; });
+    var fScale = rowScale(forceVals, FORCE_LADDER);
+    var tScale = rowScale(torqueVals, TORQUE_LADDER);
+
+    var nsLabel = numIn(r.nSigma);
+
+    var html = '<table class="press">' +
+      '<colgroup><col style="width:33%"><col><col><col>' +
+      '<col style="width:34px"></colgroup>' +
+      '<thead><tr><th>±' + nsLabel + 'σ</th>' +
+      '<th>−' + nsLabel + 'σ</th><th>nominal</th><th>+' + nsLabel + 'σ</th>' +
+      '<th class="u"></th></tr></thead><tbody>';
+
+    html += row('Interference', vals(function (c) { return c.interferenceUm; }),
+                plain('µm'));
+    html += row('Contact pressure', vals(function (c) { return c.pressureMPa; }),
+                plain('MPa'));
+    html += row('Insertion force', forceVals, fScale);
+    html += row('Holding force', vals(function (c) { return c.holdingForceN; }), fScale);
+    html += row('Holding torque', torqueVals, tScale);
+
+    [['pin', 'Pin'], ['hole', 'Hole']].forEach(function (part) {
+      var key = part[0];
+      var mat = Materials.get(key === 'pin' ? state.pinMat : state.holeMat);
+      html += '<tr class="part is-' + key + '"><th colspan="5">' +
+        part[1] + ' — ' + esc(mat.name) + '</th></tr>';
+      html += row('Hoop strain', vals(function (c) { return c[key].microstrain; }),
+                  plain('µε', 3));
+      html += row('Von Mises', vals(function (c) { return c[key].vonMisesMPa; }),
+                  plain('MPa'));
+      var util = vals(function (c) { return c[key].yieldUtilisation * 100; });
+      var over = util[2] >= 100;
+      html += row('Of yield', util, plain('%'), over ? 'hi' : '');
+    });
+
+    html += '</tbody></table>';
+
+    var yielders = [];
+    ['pin', 'hole'].forEach(function (key) {
+      if (r.high[key].yields) {
+        yielders.push(key + ' (' + esc(Materials.get(
+          key === 'pin' ? state.pinMat : state.holeMat).name) + ')');
+      }
+    });
+    if (yielders.length) {
+      html += '<p class="press-warn">At +' + nsLabel + 'σ the ' +
+        yielders.join(' and ') + ' passes yield, so the elastic model ' +
+        'overstates pressure and force there — the real joint deforms ' +
+        'plastically instead.</p>';
+    }
+
+    if (!r.low.engaged) {
+      html += '<p class="press-warn">At −' + nsLabel + 'σ the parts clear rather ' +
+        'than interfere, so that column is zero: some assemblies would hold ' +
+        'nothing at all.</p>';
+    }
+
+    html += '<p class="press-foot">' +
+      '<span>shrink fit: hub +' + sig(r.nominal.deltaTHubC, 3) + ' °C</span>' +
+      '<span>contact ' + sig(r.nominal.contactAreaMm2, 3) + ' mm²</span>' +
+      '</p>';
+
+    $('pressOut').innerHTML = html;
+    $('pressMore').innerHTML = pressMore(r);
+  }
+
+  /** Second-order press-fit detail, kept out of the main card for height. */
+  function pressMore(r) {
+    var n = r.nominal;
+    var rows = [
+      ['Interface Ø', mm(n.diameterMm) + ' mm'],
+      ['Engagement length', numIn(n.lengthMm) + ' mm'],
+      ['Hub outer Ø', numIn(n.hubOuterMm) + ' mm'],
+      ['Pin bore Ø', n.pinBoreMm ? numIn(n.pinBoreMm) + ' mm' : 'solid'],
+      ['Contact area', sig(n.contactAreaMm2, 4) + ' mm²'],
+      ['Friction µ', numIn(n.friction)],
+      ['σ of interference', sig(r.sigmaUm, 3) + ' µm'],
+      ['Pin surface moves in', sig(Math.abs(n.pin.radialDispUm), 3) + ' µm'],
+      ['Hole surface moves out', sig(n.hole.radialDispUm, 3) + ' µm'],
+      ['Pin yields at', sig(n.pin.yieldStrain * 1e6, 4) + ' µε'],
+      ['Hole yields at', sig(n.hole.yieldStrain * 1e6, 4) + ' µε'],
+      ['Hub heating to clear', sig(n.deltaTHubC, 3) + ' °C'],
+      ['Hub geometry factor', sig(n.compliance.hubFactor, 4)],
+      ['Pin geometry factor', sig(n.compliance.pinFactor, 4)]
+    ];
+    var html = '<table class="mini"><tbody>';
+    rows.forEach(function (row) {
+      html += '<tr><th>' + row[0] + '</th><td>' + row[1] + '</td></tr>';
+    });
+    html += '</tbody></table>';
+    html += '<p class="fine">The two surface movements sum to half the diametral ' +
+      'interference — that is the identity the model is built on, and the pin ' +
+      'gives up the smaller share when it is the stiffer part.</p>';
+    html += '<p class="fine"><strong>Hub heating</strong> is the shrink-fit ' +
+      'alternative: warm the hub by this much and its bore opens by the full ' +
+      'interference, so the pin drops in with no press force. Add margin for ' +
+      'handling time, and remember the pin can be chilled instead.</p>';
+    html += '<p class="fine">Insertion and holding force are equal under this ' +
+      'model, both µ·p·πDL. They are listed separately because a lubricated ' +
+      'insertion and a dry retention are different questions — override µ to ' +
+      'explore either.</p>';
     return html;
   }
 
@@ -279,6 +607,9 @@
       '</tbody></table>';
     $('kEcho').textContent = Viz.fmt(stats.k, 1);
 
+    fillMatSelects();
+    renderPress(stats);
+
     syncHash();
   }
 
@@ -292,6 +623,15 @@
     if (state.k !== 3) p.push('k=' + state.k);
     if (state.shift !== 0) p.push('s=' + state.shift);
     if (state.vizMode !== 'dia') p.push('v=' + state.vizMode);
+    // Press-fit state. Only overrides travel in the hash: a null geometry field
+    // means "track the diameter", and baking its current derived value into the
+    // URL would freeze it for whoever opened the link.
+    p.push('pm=' + state.pinMat, 'hm=' + state.holeMat);
+    if (state.engLen !== null) p.push('L=' + state.engLen);
+    if (state.hubOd !== null) p.push('od=' + state.hubOd);
+    if (state.pinBore !== null) p.push('bore=' + state.pinBore);
+    if (state.fric !== null) p.push('mu=' + state.fric);
+    if (state.nSigma !== 1) p.push('ns=' + state.nSigma);
     history.replaceState(null, '', '#' + p.join('&'));
   }
 
@@ -324,6 +664,21 @@
       state.customUpper = parseFloat(q.cu);
       state.customLower = parseFloat(q.cl);
     }
+    if (q.pm && Materials.has(q.pm)) state.pinMat = q.pm;
+    if (q.hm && Materials.has(q.hm)) state.holeMat = q.hm;
+    // A geometry override only counts if it parses; anything else stays null so
+    // the field keeps tracking the diameter.
+    [['L', 'engLen'], ['od', 'hubOd'], ['bore', 'pinBore'], ['mu', 'fric']]
+      .forEach(function (pair) {
+        if (q[pair[0]] === undefined) return;
+        var v = parseFloat(q[pair[0]]);
+        if (isFinite(v) && v >= 0) state[pair[1]] = v;
+      });
+    if (q.ns !== undefined) {
+      var ns = parseFloat(q.ns);
+      if (isFinite(ns) && ns >= 0) state.nSigma = ns;
+    }
+
     $('dia').value = state.dia;
     $('kSel').value = String(state.k);
     $('shift').value = state.shift;
@@ -398,6 +753,45 @@
     });
     $('target').addEventListener('input', function () {
       state.target = num($('target'), 0); render();
+    });
+
+    /* ------------------------------------------------------------- press fit */
+
+    $('pinMat').addEventListener('change', function () {
+      state.pinMat = $('pinMat').value; render();
+    });
+    $('holeMat').addEventListener('change', function () {
+      state.holeMat = $('holeMat').value; render();
+    });
+
+    /*
+     * Geometry fields hold null until touched, which is what makes them follow the
+     * diameter. Clearing a field puts it back to null rather than to zero, so
+     * "undo my override" is just selecting the text and deleting it.
+     */
+    [['engLen', 'engLen'], ['hubOd', 'hubOd'], ['pinBore', 'pinBore'],
+     ['fric', 'fric']].forEach(function (pair) {
+      var id = pair[0], key = pair[1];
+      $(id).addEventListener('input', function () {
+        var raw = $(id).value.trim();
+        if (raw === '') {
+          state[key] = null;
+        } else {
+          var v = parseFloat(raw);
+          // Ignore an unparseable or negative entry rather than rendering NaN;
+          // the field keeps whatever the user typed until it becomes valid.
+          if (!isFinite(v) || v < 0) return;
+          state[key] = v;
+        }
+        render();
+      });
+    });
+
+    $('nSigma').addEventListener('input', function () {
+      var v = parseFloat($('nSigma').value);
+      if (!isFinite(v) || v < 0) return;
+      state.nSigma = v;
+      render();
     });
   }
 

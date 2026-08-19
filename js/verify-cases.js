@@ -14,6 +14,8 @@ var VerifyCases = (function () {
   var BRIEF = "worked example in the project brief";
   var RULE = 'derived by the ISO 286-1 rule (see note in REFERENCES.md)';
   var TEXTBOOK = 'standard published limits for this class';
+  var MATWEB_AL = 'ASM / MatWeb Aluminium 6061-T6';
+  var MATWEB_STEEL = 'AZoM / MatWeb AISI 4140';
 
   return {
 
@@ -175,6 +177,47 @@ var VerifyCases = (function () {
         sigmaPin: 1, sigmaHole: 1, sigma: Math.SQRT2, mean: 5,
         min: 5 - 3 * Math.SQRT2, max: 5 + 3 * Math.SQRT2,
         pInterference: 0.99980 }
+    ],
+
+    /* ------------------------------------------------------ material properties */
+    /*
+     * Spot checks on data/materials.csv. Editing that file is the intended way to
+     * add a material, which makes a fat-fingered modulus or yield the most likely
+     * future defect in this feature -- a wrong E silently rescales every force.
+     * These fixtures pin the published values the two shipped rows rest on.
+     */
+    materials: [
+      // 6061-T6, the canonical ASM / MatWeb set. Imperial originals in brackets
+      // because that is how the source tabulates them.
+      { key: 'al6061', field: 'youngs_modulus_gpa', value: 68.9, tol: 0.05,
+        src: MATWEB_AL + ' (10.0 Msi)' },
+      { key: 'al6061', field: 'poissons_ratio', value: 0.33, src: MATWEB_AL },
+      { key: 'al6061', field: 'density_kg_m3', value: 2700, src: MATWEB_AL },
+      { key: 'al6061', field: 'tensile_strength_mpa', value: 310, tol: 1,
+        src: MATWEB_AL + ' (45 ksi)' },
+      { key: 'al6061', field: 'yield_strength_mpa', value: 276, tol: 1,
+        src: MATWEB_AL + ' (40 ksi)' },
+      { key: 'al6061', field: 'shear_strength_mpa', value: 207, tol: 1,
+        src: MATWEB_AL + ' (30 ksi)' },
+      { key: 'al6061', field: 'cte_um_m_k', value: 23.6, tol: 0.05,
+        src: MATWEB_AL },
+
+      // AISI 4140 quenched & tempered. UTS and yield are the conservative low end
+      // of the published Q&T ranges (850-1000 and 650-850 MPa); shear is estimated
+      // as 0.60*UTS, which is the standard approximation for steel and is the one
+      // value in this row that is derived rather than quoted.
+      { key: 'steel4140', field: 'youngs_modulus_gpa', value: 205, tol: 0.05,
+        src: MATWEB_STEEL },
+      { key: 'steel4140', field: 'poissons_ratio', value: 0.29, src: MATWEB_STEEL },
+      { key: 'steel4140', field: 'density_kg_m3', value: 7850, src: MATWEB_STEEL },
+      { key: 'steel4140', field: 'tensile_strength_mpa', value: 850, tol: 1,
+        src: MATWEB_STEEL + ', low end of the Q&T range' },
+      { key: 'steel4140', field: 'yield_strength_mpa', value: 655, tol: 1,
+        src: MATWEB_STEEL + ', low end of the Q&T range' },
+      { key: 'steel4140', field: 'shear_strength_mpa', value: 510, tol: 1,
+        src: 'estimated as 0.60 x UTS' },
+      { key: 'steel4140', field: 'cte_um_m_k', value: 12.3, tol: 0.05,
+        src: MATWEB_STEEL }
     ]
   };
 })();
