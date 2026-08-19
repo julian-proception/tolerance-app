@@ -33,11 +33,29 @@ var ISO286 = (function () {
 
   /* ------------------------------------------------------------- IT grade table */
 
-  // IT1..IT13 in um, one value per principal size range (13 columns).
+  /*
+   * Grade tokens in ascending order. They are STRINGS, not numbers, because IT01
+   * and IT1 are different grades that both parse to the integer 1. Everything that
+   * needs ordering (the delta rule, the grade slider) indexes into this list.
+   */
+  var GRADES = ['01', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10',
+                '11', '12', '13', '14', '15', '16', '17', '18'];
+
+  // Numeric value of a grade token, for the rules ISO states as "up to and
+  // including IT8" and similar. IT01 and IT0 sit below IT1.
+  var GRADE_NUM = { '01': -1, '0': 0 };
+  GRADES.forEach(function (g) {
+    if (GRADE_NUM[g] === undefined) GRADE_NUM[g] = parseInt(g, 10);
+  });
+
+  // IT01..IT13 in um, one value per principal size range (13 columns).
   // Hardcoded rather than computed from i = 0.45*cbrt(D) + 0.001*D because ISO
   // rounds the formula results onto preferred-number series in a way that is not
   // reliably reproducible (e.g. at <=3 mm, 40i = 34.7 but the table says 40).
+  // Every row here was checked against Table 1 of ISO 286-1:2010 itself.
   var IT = {
+    '01': [0.3, 0.4, 0.4, 0.5, 0.6, 0.6, 0.8, 1,   1.2, 2, 2.5, 3, 4],
+    '0':  [0.5, 0.6, 0.6, 0.8, 1,   1,   1.2, 1.5, 2,   3, 4,   5, 6],
     1:  [0.8, 1,   1,   1.2, 1.5, 1.5, 2,   2.5, 3.5, 4.5, 6,   7,   8  ],
     2:  [1.2, 1.5, 1.5, 2,   2.5, 2.5, 3,   4,   5,   7,   8,   9,   10 ],
     3:  [2,   2.5, 2.5, 3,   4,   4,   5,   6,   8,   10,  12,  13,  15 ],
@@ -52,6 +70,16 @@ var ISO286 = (function () {
     12: [100, 120, 150, 180, 210, 250, 300, 350, 400, 460, 520, 570, 630],
     13: [140, 180, 220, 270, 330, 390, 460, 540, 630, 720, 810, 890, 970]
   };
+
+  /*
+   * IT14..IT18 are exactly ten times IT9..IT13. That is not a shortcut: the ISO
+   * series advances by a factor of ten every five grades (IT6 = 10i, IT11 = 100i,
+   * IT16 = 1000i), and the relation was checked against Table 1 of ISO 286-1 at
+   * all thirteen size ranges before being relied on here.
+   */
+  [9, 10, 11, 12, 13].forEach(function (base) {
+    IT[String(base + 5)] = IT[base].map(function (v) { return v * 10; });
+  });
 
   /* -------------------------------------------- shaft fundamental deviations */
 
@@ -116,28 +144,57 @@ var ISO286 = (function () {
     8: [6, 10, 12, 15, 20, 24, 28, 34, 41, 47, 55, 60, 66]
   };
 
+  /*
+   * Letters ISO 286-1 defines by rule rather than by a column of their own.
+   *
+   * cd, ef and fg are the geometric mean of their two neighbours. That is an
+   * INTERPOLATION, so it cannot fall outside the pair it sits between and is safe
+   * at every size.
+   *
+   * v, x, y, z, za, zb and zc come from ISO 286-1's formulae, ei = IT(n) + k*D
+   * with D the geometric mean of the size range. These are EXTRAPOLATIONS beyond
+   * the tabulated letters, and they are only trustworthy where the formula
+   * reproduces the tabulated values. Checked against u -- whose column is
+   * tabulated -- the formula is exact from 18 mm upward and understates by 5 to
+   * 6 um below it, which at small sizes would place x below u and break the
+   * ordering of the letters entirely. So they are declared undefined below
+   * `minSize` and rejected rather than guessed. See REFERENCES.md.
+   */
+  var MEAN_OF = { cd: ['c', 'd'], ef: ['e', 'f'], fg: ['f', 'g'] };
+
+  var DERIVED_EI = {
+    v:  { it: '7',  k: 1.25, minSize: 18 },
+    x:  { it: '7',  k: 1.6,  minSize: 18 },
+    y:  { it: '7',  k: 2,    minSize: 18 },
+    z:  { it: '7',  k: 2.5,  minSize: 18 },
+    za: { it: '8',  k: 3.15, minSize: 18 },
+    zb: { it: '9',  k: 4,    minSize: 18 },
+    zc: { it: '10', k: 5,    minSize: 18 }
+  };
+
+  /** Geometric mean diameter of the fine sub-range containing `size`, in mm. */
+  function meanDiameter(size) {
+    var i = rangeIndex(size, R25);
+    var lo = (i === 0) ? 1 : R25[i - 1];
+    return Math.sqrt(lo * R25[i]);
+  }
+
   /* ------------------------------------------------------------ grade catalogue */
 
   // Grades offered in the UI per letter. Any parseable class is still computed if
   // asked for; this list only drives dropdowns and the suggestion ladder, so that
   // we surface combinations engineers actually specify.
-  var OFFERED_GRADES = {
-    a: [11, 12], b: [11, 12], c: [9, 10, 11], d: [8, 9, 10, 11],
-    e: [7, 8, 9], f: [6, 7, 8, 9], g: [5, 6, 7],
-    h: [5, 6, 7, 8, 9, 10, 11],
-    j: [5, 6, 7], js: [5, 6, 7, 8, 9, 10, 11],
-    k: [5, 6, 7], m: [5, 6, 7, 8], n: [5, 6, 7, 8],
-    p: [5, 6, 7], r: [5, 6, 7], s: [5, 6, 7], t: [6, 7], u: [6, 7, 8]
-  };
-  // Holes carry one extra grade for K/M/N/P per ISO practice (e.g. P8 exists).
-  var OFFERED_GRADES_HOLE = {
-    A: [11, 12], B: [11, 12], C: [9, 10, 11], D: [8, 9, 10, 11],
-    E: [7, 8, 9], F: [6, 7, 8, 9], G: [5, 6, 7],
-    H: [5, 6, 7, 8, 9, 10, 11],
-    J: [6, 7, 8], JS: [5, 6, 7, 8, 9, 10, 11],
-    K: [5, 6, 7, 8], M: [5, 6, 7, 8], N: [5, 6, 7, 8],
-    P: [5, 6, 7, 8], R: [5, 6, 7], S: [5, 6, 7], T: [6, 7], U: [6, 7, 8]
-  };
+  /*
+   * Which grades to offer per letter. ISO defines a deviation for every letter at
+   * every grade, so the default is all twenty. The two exceptions are real data
+   * limits rather than policy: shaft j and hole J are tabulated per grade rather
+   * than derived from a single column, and only those grades are corroborated.
+   */
+  var GRADE_EXCEPTIONS = { j: ['5', '6', '7'], J: ['6', '7', '8'] };
+
+  function offeredGrades(letter) {
+    return GRADE_EXCEPTIONS[letter] || GRADES;
+  }
 
   /* ------------------------------------------------------------------- helpers */
 
@@ -158,12 +215,20 @@ var ISO286 = (function () {
     }
   }
 
+  /** Normalise a grade to its canonical token ('01', '0', '1' ... '18'). */
+  function gradeToken(grade) {
+    var g = String(grade);
+    if (GRADE_NUM[g] === undefined) {
+      throw new Error('IT' + grade + ' is not a standard tolerance grade ' +
+                      '(IT01, IT0, IT1 to IT18).');
+    }
+    return g;
+  }
+
   /** Standard tolerance (IT grade) value in um for a basic size. */
   function itValue(size, grade) {
     checkSize(size);
-    var row = IT[grade];
-    if (!row) throw new Error('IT' + grade + ' is not supported (IT1-IT13 only).');
-    return row[rangeIndex(size, R13)];
+    return IT[gradeToken(grade)][rangeIndex(size, R13)];
   }
 
   /**
@@ -177,15 +242,20 @@ var ISO286 = (function () {
    * 3 mm, K6 is 0/-6 rather than +2/-4. The ISO delta table itself begins at
    * >3 mm for exactly this reason.
    */
+  // "P to ZC" in the standard's wording, spelled out.
+  var P_TO_ZC = ['P', 'R', 'S', 'T', 'U', 'V', 'X', 'Y', 'Z', 'ZA', 'ZB', 'ZC'];
+
   function deltaFor(size, letter, grade) {
     if (size <= 3) return 0;
+    var g = gradeToken(grade), gn = GRADE_NUM[g];
     var isKMN = (letter === 'K' || letter === 'M' || letter === 'N');
-    var isPtoU = ('PRSTU'.indexOf(letter) >= 0);
-    if (isKMN && grade > 8) return 0;
-    if (isPtoU && grade > 7) return 0;
-    if (!isKMN && !isPtoU) return 0;
-    if (grade < 2) return 0;
-    return itValue(size, grade) - itValue(size, grade - 1);
+    var isPtoZC = P_TO_ZC.indexOf(letter) >= 0;
+    if (isKMN && gn > 8) return 0;
+    if (isPtoZC && gn > 7) return 0;
+    if (!isKMN && !isPtoZC) return 0;
+    var i = GRADES.indexOf(g);
+    if (i <= 0) return 0;
+    return itValue(size, g) - itValue(size, GRADES[i - 1]);
   }
 
   /**
@@ -222,9 +292,30 @@ var ISO286 = (function () {
       return { kind: 'ei', value: jrow[rangeIndex(size, R13)] };
     }
     if (letter === 'k') {
-      var useTable = !forShaft || (grade >= 4 && grade <= 7);
+      var gn = GRADE_NUM[gradeToken(grade)];
+      var useTable = !forShaft || (gn >= 4 && gn <= 7);
       var kv = useTable ? SHAFT_EI_13.k[rangeIndex(size, R13)] : 0;
       return { kind: 'ei', value: kv };
+    }
+    if (MEAN_OF[letter]) {
+      // Geometric mean of the two neighbouring letters' deviations.
+      var pair = MEAN_OF[letter];
+      var a = shaftFundamental(size, pair[0], grade, forShaft).value;
+      var b = shaftFundamental(size, pair[1], grade, forShaft).value;
+      return { kind: 'es', value: -Math.round(Math.sqrt(a * b)), derived: true };
+    }
+    if (DERIVED_EI[letter]) {
+      var d = DERIVED_EI[letter];
+      if (size <= d.minSize) {
+        throw new Error('Tolerance letter ' + letter + ' is not available at ' +
+                        size + ' mm in this tool: ISO tabulates it there, but the ' +
+                        'published values could not be verified, and deriving them ' +
+                        'from the formula gives figures that contradict the ' +
+                        'tabulated letters. Use a size above ' + d.minSize + ' mm.');
+      }
+      return { kind: 'ei',
+               value: Math.round(itValue(size, d.it) + d.k * meanDiameter(size)),
+               derived: true };
     }
     if (SHAFT_ES_13[letter]) {
       return { kind: 'es', value: SHAFT_ES_13[letter][rangeIndex(size, R13)] };
@@ -255,8 +346,8 @@ var ISO286 = (function () {
     var it = itValue(size, grade);
     var fd = shaftFundamental(size, letter, grade);
     return (fd.kind === 'es')
-      ? { upper: fd.value, lower: fd.value - it }
-      : { upper: fd.value + it, lower: fd.value };
+      ? { upper: fd.value, lower: fd.value - it, derived: fd.derived }
+      : { upper: fd.value + it, lower: fd.value, derived: fd.derived };
   }
 
   /** {upper, lower} deviations in um for a hole class. */
@@ -280,16 +371,27 @@ var ISO286 = (function () {
     if (fd.kind === 'es') {
       // A..H: EI = -es(shaft), ES = EI + IT.
       var ei = -fd.value;
-      return { upper: ei + it, lower: ei };
+      return { upper: ei + it, lower: ei, derived: fd.derived };
     }
-    // K..U: ES = -ei(shaft) + delta.
+    // K..ZC: ES = -ei(shaft) + delta.
     var esH = -fd.value + deltaFor(size, letter, grade);
-    return { upper: esH, lower: esH - it };
+    return { upper: esH, lower: esH - it, derived: fd.derived };
   }
 
   /* -------------------------------------------------------------- public API */
 
   var CLASS_RE = /^([A-Za-z]{1,2})\s*(\d{1,2})$/;
+
+  /*
+   * The 28 fundamental deviation identifiers of ISO 286, in ascending order of
+   * deviation. I, L, O, Q and W are deliberately absent from the standard: they
+   * are too easily confused with digits or with other symbols on a drawing.
+   */
+  var LETTERS = ['a', 'b', 'c', 'cd', 'd', 'e', 'ef', 'f', 'fg', 'g', 'h', 'j',
+                 'js', 'k', 'm', 'n', 'p', 'r', 's', 't', 'u', 'v', 'x', 'y',
+                 'z', 'za', 'zb', 'zc'];
+  var IS_LETTER = {};
+  LETTERS.forEach(function (l) { IS_LETTER[l] = true; });
 
   /**
    * Parse a tolerance class such as "m6", "JS6", "H7".
@@ -302,12 +404,14 @@ var ISO286 = (function () {
     if (!m) throw new Error('Could not read "' + str + '" as a tolerance class ' +
                             '(expected something like m6, h7 or JS6).');
     var letters = m[1];
-    var grade = parseInt(m[2], 10);
+    // The grade stays a STRING: IT01 and IT1 both parse to the integer 1.
+    var grade = gradeToken(m[2]);
     var isHole = letters[0] === letters[0].toUpperCase();
-    // Accept "js6"/"JS6" and also the ISO typographic form written as "Js6".
+    // Accept "js6"/"JS6" and the ISO typographic form written as "Js6"/"Za6".
     var norm = isHole ? letters.toUpperCase() : letters.toLowerCase();
-    if (norm.length === 2 && norm.toUpperCase() !== 'JS') {
-      throw new Error('Unknown tolerance letter "' + letters + '".');
+    if (!IS_LETTER[norm.toLowerCase()]) {
+      throw new Error('Unknown tolerance letter "' + letters + '" (ISO 286 uses ' +
+                      'a to zc; I, L, O, Q and W are not used).');
     }
     return { letter: norm, grade: grade, kind: isHole ? 'hole' : 'shaft',
              label: norm + grade };
@@ -322,7 +426,7 @@ var ISO286 = (function () {
       : shaftDeviation(size, p.letter, p.grade);
     return { upper: d.upper, lower: d.lower, letter: p.letter, grade: p.grade,
              kind: p.kind, label: p.label || (p.letter + p.grade),
-             it: itValue(size, p.grade) };
+             it: itValue(size, p.grade), derived: !!d.derived };
   }
 
   /** Limits in mm for any class string. Deviations are um, so scale by 1000. */
@@ -343,7 +447,10 @@ var ISO286 = (function () {
       kind: d.kind,
       grade: d.grade,
       letter: d.letter,
-      it: d.it
+      it: d.it,
+      // True where the value comes from an ISO formula rather than a
+      // transcribed-and-corroborated table column. Surfaced in the UI.
+      derived: d.derived
     };
   }
 
@@ -353,11 +460,10 @@ var ISO286 = (function () {
    */
   function letters(size, kind) {
     checkSize(size);
-    var table = (kind === 'hole') ? OFFERED_GRADES_HOLE : OFFERED_GRADES;
-    return Object.keys(table).filter(function (letter) {
-      // Keep a letter only if at least one of its grades exists at this size,
-      // so t never appears in the list below 24 mm.
-      return table[letter].some(function (grade) {
+    return LETTERS.map(function (l) {
+      return (kind === 'hole') ? l.toUpperCase() : l;
+    }).filter(function (letter) {
+      return offeredGrades(letter).some(function (grade) {
         try { deviations(size, letter + grade); return true; }
         catch (e) { return false; }
       });
@@ -365,11 +471,9 @@ var ISO286 = (function () {
   }
 
   /** Grades offered for one letter at this size. */
-  function gradesForLetter(size, letter, kind) {
+  function gradesForLetter(size, letter) {
     checkSize(size);
-    var table = (kind === 'hole') ? OFFERED_GRADES_HOLE : OFFERED_GRADES;
-    var list = table[letter] || [];
-    return list.filter(function (grade) {
+    return offeredGrades(letter).filter(function (grade) {
       try { deviations(size, letter + grade); return true; }
       catch (e) { return false; }
     });
@@ -378,15 +482,14 @@ var ISO286 = (function () {
   /** Class strings valid at this size, for dropdowns and the option lists. */
   function availableClasses(size, kind) {
     checkSize(size);
-    var table = (kind === 'hole') ? OFFERED_GRADES_HOLE : OFFERED_GRADES;
     var out = [];
-    Object.keys(table).forEach(function (letter) {
-      table[letter].forEach(function (grade) {
+    letters(size, kind).forEach(function (letter) {
+      offeredGrades(letter).forEach(function (grade) {
         var label = letter + grade;
         try {
           deviations(size, label);
           out.push(label);
-        } catch (e) { /* not defined at this size (e.g. t6 at 3 mm) -- skip */ }
+        } catch (e) { /* not defined at this size -- skip */ }
       });
     });
     return out;
@@ -404,6 +507,8 @@ var ISO286 = (function () {
     symmetricHalf: symmetricHalf,
     MIN_SIZE: MIN_SIZE,
     MAX_SIZE: MAX_SIZE,
+    GRADES: GRADES,
+    LETTERS: LETTERS,
     RANGES_PRINCIPAL: R13,
     RANGES_FINE: R25
   };

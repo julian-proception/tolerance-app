@@ -28,7 +28,7 @@ State lives in the URL hash, so a fit can be bookmarked or shared:
 
 ## Verifying it
 
-The tolerance data is the whole value of this tool, so it ships with 335 checks
+The tolerance data is the whole value of this tool, so it ships with 389 checks
 against published values.
 
 ```sh
@@ -61,6 +61,7 @@ That says the two parts' deformations account for precisely the interference
 forced between them, so the pressure solution and the reported strains cannot
 drift apart. It is asserted across 96 combinations of size, material and geometry
 and holds to ~1e-16.
+
 ## Layout
 
 | File | Role |
@@ -129,21 +130,30 @@ tool says so explicitly — it overstates both pressure and force.
 **Interference is `pin size − hole size`** throughout — positive means the pin is
 larger than the hole. Nothing in the app deviates from that convention.
 
-**The drawing scale is pinned, not adaptive.** The circle view exaggerates the
+**The drawing scale is pinned, never adaptive.** The circle view exaggerates the
 tolerance bands — at 3 mm a ±3 µm band is 0.1% of the diameter and would otherwise
-be a hairline — and the factor is stated on the drawing. It is derived from the
-**diameter alone**, by scaling to the widest deviations reachable in IT5–IT7, so
-that moving either hole slider changes the picture only in the way it should: the
-bands move and resize against a fixed scale, rather than the whole drawing
-rescaling under the cursor. Beyond IT7 no single scale can stay fixed and stay
-legible — an A12 hole sits over 500 µm off basic — so there the factor is reduced
-just enough to keep the drawing on the canvas, and the label reports it.
+be a hairline — and the factor is stated on the drawing. It depends on the
+**diameter and your own slider, and on nothing else**. Moving either hole slider
+changes the picture only in the way it should: the bands move and resize against a
+fixed scale, rather than the drawing rescaling under the cursor.
+
+Nothing reduces the factor automatically, not even to keep an extreme class on the
+canvas — that would put the rescaling straight back. If the bands run outside the
+view (an A12 hole sits over 500 µm off basic), the visualisation says so and offers
+a factor that fits; taking it is your call. Whether a band is too narrow to read is
+a judgement only you can make, so the tool leaves it to you.
 
 **The bell curve is a model.** It assumes both dimensions are independent, normal
 and centred, with the tolerance limits at ±3σ (adjustable). Real machining often
 runs offset or skewed, so the percentages estimate process capability rather than
 guarantee it. The worst-case limits are what the drawing has to survive.
 
-Coverage is 1–500 mm, hole classes A–U and shaft a–u, grades IT5–IT11. See
-`REFERENCES.md` for omissions and for the one rule that is applied rather than
-corroborated (Δ = 0 below 3 mm, which affects K/M/N/P only).
+Coverage is 1–500 mm with the **complete ISO 286 catalogue**: all 28 fundamental
+deviations (a…zc, and A…ZC) and all 20 grades (IT01, IT0, IT1…IT18).
+
+Not every value carries the same weight of evidence, so the ones computed from an
+ISO formula rather than transcribed from a corroborated table are **flagged
+`derived` in the interface**. The extended letters v, x, y, z, za, zb and zc are
+additionally **refused at or below 18 mm**, where the formula is known to
+disagree with the tabulated letters by enough to invert their order.
+`REFERENCES.md` sets out exactly which values rest on which source.

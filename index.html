@@ -22,7 +22,8 @@
   <div class="col col-controls">
 
     <section class="card">
-      <h2><i class="dot dot-pin"></i>Pin<b id="pinLabel">m6</b></h2>
+      <h2><i class="dot dot-pin"></i>Pin<b id="pinLabel">m6</b>
+        <span class="derived" id="pinDerived" hidden title="Value derived from an ISO 286-1 formula rather than transcribed from a verified table">derived</span></h2>
 
       <div class="ctrl">
         <label class="ctrl-lab" for="dia">Diameter</label>
@@ -64,7 +65,8 @@
 
     <section class="card">
       <h2><i class="dot dot-hole"></i>Hole<b id="holeLabel">JS6</b>
-        <span class="pref" id="holePref" hidden>preferred</span></h2>
+        <span class="pref" id="holePref" hidden>preferred</span>
+        <span class="derived" id="holeDerived" hidden title="Value derived from an ISO 286-1 formula rather than transcribed from a verified table">derived</span></h2>
 
       <!-- axis 1: band width -->
       <div class="slider">
@@ -117,7 +119,13 @@
         </span>
       </h2>
 
-      <div class="viz-host" id="vizHost"></div>
+      <div class="viz-wrap">
+        <div class="viz-alert" id="vizAlert" hidden role="status">
+          <span id="vizAlertMsg"></span>
+          <button type="button" id="vizFit">fit</button>
+        </div>
+        <div class="viz-host" id="vizHost"></div>
+      </div>
 
       <div class="viz-foot" id="vizFoot">
         <label for="exag">Exaggeration</label>

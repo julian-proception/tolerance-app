@@ -13,6 +13,9 @@ var VerifyCases = (function () {
   var ROYMECH = 'RoyMech ISO 286-2 hole table, >3-6 mm row';
   var BRIEF = "worked example in the project brief";
   var RULE = 'derived by the ISO 286-1 rule (see note in REFERENCES.md)';
+  var ISOEX = 'worked example in ISO 286-1:2010 itself';
+  var ISOT1 = 'Table 1 of ISO 286-1:2010';
+  var DERIV = 'ISO 286-1 formula (derived, not transcribed) - see REFERENCES.md';
   var TEXTBOOK = 'standard published limits for this class';
   var MATWEB_AL = 'ASM / MatWeb Aluminium 6061-T6';
   var MATWEB_STEEL = 'AZoM / MatWeb AISI 4140';
@@ -79,6 +82,38 @@ var VerifyCases = (function () {
       { size: 5, cls: 'P8',  upper: -12, lower: -30, src: ROYMECH },
       { size: 5, cls: 'R6',  upper: -12, lower: -20, src: ROYMECH },
       { size: 5, cls: 'R7',  upper: -11, lower: -23, src: ROYMECH },
+
+      /* --- the five worked examples printed in ISO 286-1 itself. These are the
+             strongest fixtures in the suite: the standard states both the inputs
+             and the answers, including two that exercise the delta rule. --- */
+      { size: 90, cls: 'F7', upper: 71,  lower: 36,  src: ISOEX },
+      { size: 90, cls: 'f7', upper: -36, lower: -71, src: ISOEX },
+      { size: 28, cls: 'P9', upper: -22, lower: -74, src: ISOEX },
+      { size: 20, cls: 'K7', upper: 6,   lower: -15, src: ISOEX },
+      { size: 40, cls: 'U6', upper: -55, lower: -71, src: ISOEX },
+
+      /* --- grades beyond IT1-IT13, from Table 1 of the standard --- */
+      { size: 25, cls: 'h01', upper: 0, lower: -0.6, src: ISOT1 },
+      { size: 25, cls: 'h0',  upper: 0, lower: -1,   src: ISOT1 },
+      { size: 3,  cls: 'H01', upper: 0.3, lower: 0,  src: ISOT1 },
+      { size: 3,  cls: 'H0',  upper: 0.5, lower: 0,  src: ISOT1 },
+      { size: 3,  cls: 'H14', upper: 250,  lower: 0, src: ISOT1 },
+      { size: 3,  cls: 'H18', upper: 1400, lower: 0, src: ISOT1 },
+      { size: 500, cls: 'H14', upper: 1550, lower: 0, src: ISOT1 },
+      { size: 500, cls: 'H18', upper: 9700, lower: 0, src: ISOT1 },
+
+      /* --- the extended letters. These are DERIVED from ISO 286-1's formulae,
+             not transcribed from a table, and are only offered above 18 mm where
+             the formula was shown to reproduce the tabulated letters. --- */
+      { size: 25, cls: 'v6',  upper: 68,  lower: 55,  src: DERIV },
+      { size: 25, cls: 'x6',  upper: 77,  lower: 64,  src: DERIV },
+      { size: 25, cls: 'y6',  upper: 88,  lower: 75,  src: DERIV },
+      { size: 25, cls: 'z6',  upper: 101, lower: 88,  src: DERIV },
+      { size: 25, cls: 'za6', upper: 131, lower: 118, src: DERIV },
+      { size: 25, cls: 'zc6', upper: 231, lower: 218, src: DERIV },
+      { size: 3,  cls: 'cd9', upper: -35, lower: -60, src: DERIV },
+      { size: 3,  cls: 'ef8', upper: -9,  lower: -23, src: DERIV },
+      { size: 3,  cls: 'fg6', upper: -3,  lower: -9,  src: DERIV },
 
       /* --- widely published shaft classes at 25 mm --- */
       { size: 25, cls: 'h6', upper: 0,  lower: -13, src: TEXTBOOK },
@@ -148,7 +183,15 @@ var VerifyCases = (function () {
       { size: 25, cls: 'h',   why: 'missing grade' },
       { size: 0.5, cls: 'h6', why: 'below the supported size range' },
       { size: 900, cls: 'h6', why: 'above the supported size range' },
-      { size: 25, cls: 'j8',  why: 'shaft j is only corroborated at grades 5-7' }
+      { size: 25, cls: 'j8',  why: 'shaft j is only corroborated at grades 5-7' },
+      { size: 10, cls: 'x6',  why: 'extended letters are unverified below 18 mm' },
+      { size: 18, cls: 'z6',  why: 'extended letters start above 18 mm' },
+      { size: 3,  cls: 'zc6', why: 'extended letters are unverified below 18 mm' },
+      { size: 25, cls: 'q6',  why: 'Q is not an ISO 286 identifier' },
+      { size: 25, cls: 'w6',  why: 'W is not an ISO 286 identifier' },
+      { size: 25, cls: 'l6',  why: 'L is not an ISO 286 identifier' },
+      { size: 25, cls: 'h19', why: 'IT19 does not exist' },
+      { size: 25, cls: 'h00', why: 'IT00 does not exist' }
     ],
 
     /* ------------------------------------------------------------ statistics */

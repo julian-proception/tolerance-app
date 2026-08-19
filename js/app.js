@@ -14,9 +14,9 @@
 
   var state = {
     dia: 3,
-    pinLetter: 'm', pinGrade: 6,
+    pinLetter: 'm', pinGrade: '6',
     useCustom: false, customUpper: 8, customLower: 2,
-    holeLetter: 'JS', holeGrade: 6,
+    holeLetter: 'JS', holeGrade: '6',
     vizMode: 'dia',
     k: 3, shift: 0, target: 0, exagSlider: 50,
     exagRef: null, exagBasis: null,  // pinned factor and the diameter it belongs to
@@ -431,7 +431,7 @@
         (l === state.pinLetter ? ' selected' : '') + '>' + l + '</option>';
     }).join('');
 
-    var grades = ISO286.gradesForLetter(state.dia, state.pinLetter, 'shaft');
+    var grades = ISO286.gradesForLetter(state.dia, state.pinLetter);
     if (grades.indexOf(state.pinGrade) < 0) state.pinGrade = grades[Math.floor(grades.length / 2)];
     $('pinGrade').innerHTML = grades.map(function (g) {
       return '<option value="' + g + '"' +
@@ -448,7 +448,8 @@
   function resolveHole(pin) {
     var grades = HoleOptions.gradesFor(state.dia);
     if (grades.indexOf(state.holeGrade) < 0) {
-      state.holeGrade = grades[Math.min(1, grades.length - 1)];
+      // Fall back to IT6 when the held grade is gone, not to the coarsest.
+      state.holeGrade = grades.indexOf('6') >= 0 ? '6' : grades[0];
     }
     var gi = grades.indexOf(state.holeGrade);
     $('gradeSlider').max = String(grades.length - 1);
@@ -480,19 +481,29 @@
   /* ----------------------------------------------------------- visualisation */
 
   /**
-   * The factor is pinned to the diameter, so moving either tolerance slider does
-   * not rescale the drawing. It is only re-derived when the diameter changes, and
-   * clamped at draw time where a very offset class would otherwise run outside the
-   * box (or through the centre).
+   * The drawing scale.
+   *
+   * Pinned to the diameter and to the user's own slider -- nothing else. It is
+   * deliberately NOT reduced to make an extreme class fit: doing that reintroduced
+   * the rescaling this design exists to remove, since a band far enough off basic
+   * would shrink the whole drawing the moment a slider reached it. If the bands
+   * overflow, the view says so and offers a factor that fits; whether the bands
+   * are readable is the user's judgement, not the code's.
    */
-  function exaggeration(pin, hole) {
+  function exaggeration() {
     if (state.exagBasis !== state.dia) {
       var ex = HoleOptions.precisionExtremes(state.dia);
       state.exagRef = Viz.pinnedExaggeration(state.dia, ex.lo, ex.hi);
       state.exagBasis = state.dia;
     }
-    var wanted = state.exagRef * Math.pow(10, (state.exagSlider - 50) / 25);
-    return Viz.clampExaggeration(state.dia, pin, hole, wanted);
+    return state.exagRef * Math.pow(10, (state.exagSlider - 50) / 25);
+  }
+
+  /** Slider position that yields a given factor, inverting exaggeration(). */
+  function sliderFor(factor) {
+    if (!state.exagRef) return state.exagSlider;
+    var v = 50 + 25 * Math.log(factor / state.exagRef) / Math.LN10;
+    return Math.max(0, Math.min(100, v));
   }
 
   function renderViz(pin, hole) {
@@ -502,10 +513,22 @@
     $('vizFoot').hidden = !diaMode;
 
     if (diaMode) {
-      var E = exaggeration(pin, hole);
+      var E = exaggeration();
       $('vizHost').innerHTML = Viz.circleView({
         basic: state.dia, pin: pin, hole: hole, exaggeration: E
       });
+
+      // Report overflow instead of preventing it.
+      var of = Viz.circleOverflow(state.dia, pin, hole, E);
+      state.fitTarget = of.suggested;
+      $('vizAlert').hidden = !of.over;
+      if (of.over) {
+        var where = of.inward && of.outward ? 'past the centre and beyond the view'
+                  : of.inward ? 'in past the centre'
+                  : 'beyond the view';
+        $('vizAlertMsg').textContent = 'Bands run ' + where +
+          ' — reduce exaggeration to ×' + Math.round(of.suggested);
+      }
       $('trueScaleView').innerHTML = Viz.trueScaleView({
         basic: state.dia, pin: pin, hole: hole
       });
@@ -517,6 +540,7 @@
         '<span><i class="sw sw-hole-band"></i>hole tolerance</span>' +
         '<span><i class="sw sw-overlap"></i>overlap — fit may go either way</span>';
     } else {
+      $('vizAlert').hidden = true;
       $('vizHost').innerHTML = Viz.zoneChart({
         basic: state.dia, pin: pin, hole: hole
       });
@@ -540,6 +564,7 @@
 
     fillPinSelects();
     $('pinLabel').textContent = pin.label;
+    $('pinDerived').hidden = !pin.derived;
     $('pinReadout').innerHTML = readout(pin);
     $('pinMore').innerHTML = moreTable(pin);
 
@@ -556,6 +581,7 @@
     var hole = h.hole;
     $('holeLabel').textContent = hole.label;
     $('holePref').hidden = !h.row.preferred;
+    $('holeDerived').hidden = !hole.derived;
     $('holeReadout').innerHTML = readout(hole);
     $('holeMore').innerHTML = moreTable(hole);
 
@@ -680,6 +706,7 @@
     }
 
     $('dia').value = state.dia;
+    $('exag').value = String(state.exagSlider);
     $('kSel').value = String(state.k);
     $('shift').value = state.shift;
     $('useCustom').checked = state.useCustom;
@@ -704,7 +731,7 @@
       render();
     });
     $('pinGrade').addEventListener('change', function () {
-      state.pinGrade = parseInt($('pinGrade').value, 10);
+      state.pinGrade = $('pinGrade').value;
       render();
     });
 
@@ -731,6 +758,12 @@
     });
     $('exag').addEventListener('input', function () {
       state.exagSlider = parseFloat($('exag').value);
+      render();
+    });
+    $('vizFit').addEventListener('click', function () {
+      if (!state.fitTarget) return;
+      state.exagSlider = sliderFor(state.fitTarget);
+      $('exag').value = String(state.exagSlider);
       render();
     });
 

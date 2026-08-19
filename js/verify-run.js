@@ -168,6 +168,86 @@ var VerifyRun = (function () {
     g.ok(Fits.classify(0, 0) === 'interference', 'zero width at zero',
          Fits.classify(0, 0), 'interference');
 
+    /* ------------------------------------------------ catalogue completeness */
+    g = group('Catalogue completeness');
+    g.ok(ISO286.LETTERS.length === 28, 'all 28 ISO fundamental deviations exist',
+         ISO286.LETTERS.length + ' letters', '28');
+    g.ok(ISO286.GRADES.length === 20, 'all 20 ISO standard tolerance grades exist',
+         ISO286.GRADES.length + ' grades', '20');
+    g.ok(ISO286.GRADES[0] === '01' && ISO286.GRADES[1] === '0' &&
+         ISO286.GRADES[19] === '18',
+         'the grade series runs IT01, IT0, IT1 ... IT18',
+         ISO286.GRADES.slice(0, 3).join(',') + ' ... ' + ISO286.GRADES[19],
+         '01,0,1 ... 18');
+    // I, L, O, Q and W are deliberately absent from ISO 286.
+    var forbidden = ['i', 'l', 'o', 'q', 'w'].filter(function (l) {
+      return ISO286.LETTERS.indexOf(l) >= 0;
+    });
+    g.ok(forbidden.length === 0, 'the ambiguous identifiers I L O Q W are absent',
+         forbidden.length ? forbidden.join(',') : 'absent', 'absent');
+    var at25 = ISO286.letters(25, 'hole');
+    g.ok(at25.length === 28, 'all 28 identifiers are offered at 25 mm',
+         at25.length + ': ' + at25.join(' '), '28');
+    g.ok(ISO286.gradesForLetter(25, 'H').length === 20,
+         'hole H offers all 20 grades at 25 mm',
+         ISO286.gradesForLetter(25, 'H').length + ' grades', '20');
+
+    // IT01 and IT1 must not collide: they parse to the same integer.
+    var it01 = ISO286.itValue(25, '01'), it1 = ISO286.itValue(25, '1');
+    g.ok(it01 !== it1 && it01 === 0.6 && it1 === 1.5,
+         'IT01 and IT1 are distinct grades, not the same integer',
+         'IT01=' + it01 + ', IT1=' + it1, 'IT01=0.6, IT1=1.5');
+    g.ok(ISO286.parseClass('h01').grade === '01' &&
+         ISO286.parseClass('h1').grade === '1' &&
+         ISO286.parseClass('h0').grade === '0',
+         'h01, h0 and h1 parse to three different grades',
+         [ISO286.parseClass('h01').grade, ISO286.parseClass('h0').grade,
+          ISO286.parseClass('h1').grade].join(','), '01,0,1');
+
+    // Every grade must widen monotonically -- a coarser grade cannot be tighter.
+    var widthBad = [];
+    [3, 25, 500].forEach(function (size) {
+      var prev = -1;
+      ISO286.GRADES.forEach(function (gr) {
+        var w = ISO286.itValue(size, gr);
+        if (w < prev - 1e-9) widthBad.push('IT' + gr + '@' + size);
+        prev = w;
+      });
+    });
+    g.ok(widthBad.length === 0, 'IT values increase monotonically across all 20 grades',
+         widthBad.length ? widthBad.join(', ') : 'monotonic', 'monotonic');
+
+    // The derived values must be flagged, and the transcribed ones must not be.
+    var flagged = ['x6', 'z6', 'za6', 'zc6', 'v6', 'y6'].every(function (c) {
+      return ISO286.limits(25, c).derived === true;
+    });
+    g.ok(flagged, 'the formula-derived letters are flagged as derived',
+         flagged ? 'all flagged' : 'NOT FLAGGED', 'all flagged');
+    var plain = ['h6', 'm6', 'JS6', 'H7', 'u6', 's6', 'p6'].every(function (c) {
+      return !ISO286.limits(25, c).derived;
+    });
+    g.ok(plain, 'the transcribed letters are not flagged',
+         plain ? 'none flagged' : 'WRONGLY FLAGGED', 'none flagged');
+    g.ok(ISO286.limits(3, 'cd9').derived === true,
+         'the geometric-mean letters are flagged too',
+         'flagged', 'flagged');
+
+    // The full 28-letter axis must still be ordered by nominal diameter, or the
+    // position slider stops meaning anything.
+    var full = HoleOptions.forGrade(25, '6', ISO286.limits(25, 'h6'));
+    g.ok(full.length === 28, 'the position axis carries all 28 letters at 25 mm IT6',
+         full.length + ' classes', '28');
+    var ord = true;
+    for (var fi = 1; fi < full.length; fi++) {
+      if (full[fi].hole.mean < full[fi - 1].hole.mean - 1e-12) ord = false;
+    }
+    g.ok(ord, 'the 28-letter axis is monotonic in nominal diameter',
+         full[0].label + ' ' + full[0].hole.mean.toFixed(4) + ' -> ' +
+           full[27].label + ' ' + full[27].hole.mean.toFixed(4), 'ascending');
+    g.ok(full[0].label === 'ZC6' && full[27].label === 'A6',
+         'the axis runs from the heaviest interference to the loosest clearance',
+         full[0].label + ' ... ' + full[27].label, 'ZC6 ... A6');
+
     /* ------------------------------------------------- the two hole axes */
     g = group('Hole selection axes');
     var pinM6 = ISO286.limits(3, 'm6');
@@ -255,9 +335,10 @@ var VerifyRun = (function () {
          'indexOf reports -1 for a class not on the axis', '-1', '-1');
 
     var grades3 = HoleOptions.gradesFor(3);
-    var sortedG = grades3.slice().sort(function (a, b) { return a - b; });
-    g.ok(grades3.join() === sortedG.join() && grades3.length > 2,
-         'gradesFor returns ascending grades', grades3.join(' '), 'ascending');
+    var isoOrder = ISO286.GRADES.filter(function (x) { return grades3.indexOf(x) >= 0; });
+    g.ok(grades3.join() === isoOrder.join() && grades3.length > 2,
+         'gradesFor returns grades in ISO order (IT01, IT0, IT1 ...)',
+         grades3.join(' '), 'ISO order');
 
     // A 25 mm h6 pin must be able to reach all three categories somewhere.
     var reach = {};
@@ -332,120 +413,97 @@ var VerifyRun = (function () {
            'sigma ' + flatStats.sigma + ', p ' + flatStats.pInterference,
            'finite');
 
-      /* ------------------------------------------- exaggeration stability */
+      /* --------------------------------- exaggeration stability and overflow */
       /*
-       * The factor must NOT be derived from the selected classes. If it is, the
-       * drawing rescales on every slider step and the circles shift under the
-       * cursor while you are trying to compare them.
+       * The factor is a function of diameter and the user's slider ONLY. Nothing
+       * about the selected classes may influence it -- not even to keep an extreme
+       * class on the canvas, because that reintroduces the rescaling the pinned
+       * factor exists to remove. Overflow is reported instead.
        */
-      g = group('Exaggeration stability');
+      g = group('Exaggeration stability and overflow');
       var exA = HoleOptions.precisionExtremes(3);
       var refAt3 = Viz.pinnedExaggeration(3, exA.lo, exA.hi);
       g.ok(Viz.pinnedExaggeration(3, exA.lo, exA.hi) === refAt3,
            'the pinned factor depends only on the diameter',
            'x' + refAt3, 'repeatable');
 
-      // Walk the entire grade 6 position axis: the factor applied must stay put.
-      var axis6 = HoleOptions.forGrade(3, 6, pinM6);
-      var applied = axis6.map(function (r) {
-        return Viz.clampExaggeration(3, pinM6, r.hole, refAt3);
-      });
-      var unchanged = applied.filter(function (v) { return v === refAt3; }).length;
-      g.ok(unchanged === axis6.length,
-           'the factor is identical at every grade 6 position at 3 mm',
-           unchanged + ' of ' + axis6.length + ' positions unchanged',
-           'all ' + axis6.length);
-      // At larger sizes the most offset classes can still force a reduction. It
-      // must stay a nudge, never the several-fold jump the old scheme produced.
-      var exB = HoleOptions.precisionExtremes(25);
-      var ref25 = Viz.pinnedExaggeration(25, exB.lo, exB.hi);
-      var pin25 = ISO286.limits(25, 'm6');
-      /*
-       * Across the precision grades -- the range this tool is actually used in --
-       * the factor must never move at all. At the coarse end (IT11, IT12, where an
-       * A12 hole sits hundreds of micrometres off basic) a reduction is
-       * unavoidable: without it the drawing would run off the canvas. The clamp
-       * therefore still applies there, and the on-screen label reports it.
-       */
-      var worst = 1, worstAt = '';
-      [5, 6, 7].forEach(function (gr) {
-        if (HoleOptions.gradesFor(25).indexOf(gr) < 0) return;
-        HoleOptions.forGrade(25, gr, pin25).forEach(function (r) {
-          var e = Viz.clampExaggeration(25, pin25, r.hole, ref25);
-          if (ref25 / e > worst) { worst = ref25 / e; worstAt = r.label; }
-        });
-      });
-      g.ok(worst === 1,
-           'IT5-IT7 at 25 mm never force a reduction, at any position',
-           worst === 1 ? 'never clamped' : 'x' + worst.toFixed(2) + ' at ' + worstAt,
-           'never clamped');
-      // The IT5-IT7 guarantee must hold at every size, not just at 25 mm.
-      var clampedAt = [];
-      [1, 3, 8, 25, 50, 120, 500].forEach(function (size) {
+      // Whether the RENDER PATH holds the factor still cannot be observed from
+      // here -- Viz has no knowledge of it. That is asserted where it is visible,
+      // by sweeping the real sliders in the interaction pass.
+
+      // Overflow must be reported exactly when a smaller factor would be needed.
+      var pin3b = ISO286.limits(3, 'm6');
+      var okFits = Viz.circleOverflow(3, pin3b, ISO286.limits(3, 'JS6'), refAt3);
+      g.ok(!okFits.over && okFits.suggested >= refAt3,
+           'a normal fit at the pinned factor reports no overflow',
+           okFits.over ? 'overflow' : 'fits', 'fits');
+
+      // A coarse class at the precision-scaled factor must overflow, and the
+      // suggested factor must actually resolve it.
+      var coarse = ISO286.limits(3, 'C11');
+      var ofC = Viz.circleOverflow(3, pin3b, coarse, refAt3);
+      g.ok(ofC.over, 'a C11 hole at the precision factor is reported as overflowing',
+           ofC.over ? 'overflow reported' : 'NOT REPORTED', 'overflow reported');
+      g.ok(ofC.suggested < refAt3, 'the suggested factor is smaller than the current',
+           'x' + Math.round(ofC.suggested) + ' vs x' + refAt3, 'smaller');
+      var after = Viz.circleOverflow(3, pin3b, coarse, ofC.suggested);
+      g.ok(!after.over, 'applying the suggested factor clears the overflow',
+           after.over ? 'still overflowing' : 'clear', 'clear');
+
+      // over must be consistent with suggested across the whole range, or the
+      // alert would fire when nothing needs fixing (or stay silent when it does).
+      var inconsistent = [];
+      [3, 25, 120].forEach(function (size) {
         var exN = HoleOptions.precisionExtremes(size);
         var ref = Viz.pinnedExaggeration(size, exN.lo, exN.hi);
         var pn = ISO286.limits(size, 'h6');
-        [5, 6, 7].forEach(function (gr) {
-          if (HoleOptions.gradesFor(size).indexOf(gr) < 0) return;
+        HoleOptions.gradesFor(size).forEach(function (gr) {
           HoleOptions.forGrade(size, gr, pn).forEach(function (r) {
-            if (Viz.clampExaggeration(size, pn, r.hole, ref) !== ref) {
-              clampedAt.push(r.label + '@' + size + 'mm');
+            var o = Viz.circleOverflow(size, pn, r.hole, ref);
+            if (o.over !== (o.suggested < ref - 1e-9)) {
+              inconsistent.push(r.label + '@' + size);
+            }
+            if (o.over && Viz.circleOverflow(size, pn, r.hole, o.suggested).over) {
+              inconsistent.push(r.label + '@' + size + ' (suggestion does not fit)');
             }
           });
         });
       });
-      g.ok(clampedAt.length === 0,
-           'IT5-IT7 never clamp at 1, 3, 8, 25, 50, 120 or 500 mm',
-           clampedAt.length ? clampedAt.slice(0, 5).join(', ') : 'never clamped',
-           'never clamped');
+      g.ok(inconsistent.length === 0,
+           'overflow flag and suggested factor agree at every grade and size',
+           inconsistent.length ? inconsistent.slice(0, 4).join(', ') : 'consistent',
+           'consistent');
 
-      // The coarse grades still have to stay on the canvas.
-      var coarseOut = [];
-      HoleOptions.gradesFor(25).forEach(function (gr) {
-        HoleOptions.forGrade(25, gr, pin25).forEach(function (r) {
-          var e = Viz.clampExaggeration(25, pin25, r.hole, ref25);
-          var sv = Viz.circleView({ basic: 25, pin: pin25, hole: r.hole, exaggeration: e });
-          var re3 = /<circle cx="200" cy="200" r="([\d.]+)"[^>]*stroke-width="([\d.]+)"/g, m3;
-          while ((m3 = re3.exec(sv))) {
-            var rr3 = parseFloat(m3[1]), ww3 = parseFloat(m3[2]);
-            if (rr3 - ww3 / 2 < -0.01 || rr3 + ww3 / 2 > 200.01) coarseOut.push(r.label);
-          }
+      /*
+       * Without a clamp, an extreme class can drive a radius negative. SVG treats
+       * a negative r as an error and draws nothing at all, so the geometry is
+       * guarded at zero -- the drawing clips rather than vanishing.
+       */
+      var badSvg = [];
+      [3, 25, 500].forEach(function (size) {
+        var exN = HoleOptions.precisionExtremes(size);
+        var ref = Viz.pinnedExaggeration(size, exN.lo, exN.hi);
+        var pn = ISO286.limits(size, 'h6');
+        HoleOptions.gradesFor(size).forEach(function (gr) {
+          HoleOptions.forGrade(size, gr, pn).forEach(function (r) {
+            var svg = Viz.circleView({ basic: size, pin: pn, hole: r.hole,
+                                       exaggeration: ref });
+            if (/r="-/.test(svg) || /NaN|undefined/.test(svg)) {
+              badSvg.push(r.label + '@' + size);
+            }
+          });
         });
       });
-      g.ok(coarseOut.length === 0,
-           'every class at every grade still draws inside the box after clamping',
-           coarseOut.length ? coarseOut.slice(0, 5).join(', ') : 'all inside', 'all inside');
+      g.ok(badSvg.length === 0,
+           'no class emits a negative or invalid radius, even when overflowing',
+           badSvg.length ? badSvg.slice(0, 4).join(', ') : 'all valid', 'all valid');
 
-      // Where it does reduce, it may only ever reduce -- never grow past the pin.
-      var grew = applied.filter(function (v) { return v > refAt3 + 1e-9; }).length;
-      g.ok(grew === 0, 'the clamp only ever reduces the pinned factor',
-           grew + ' grew', '0 grew');
-
-      // And the clamp must actually keep the drawing inside the box.
-      var outOfBox = [];
-      axis6.forEach(function (r, i) {
-        var svg = Viz.circleView({ basic: 3, pin: pinM6, hole: r.hole,
-                                   exaggeration: applied[i] });
-        var re2 = /<circle cx="200" cy="200" r="([\d.]+)"[^>]*stroke-width="([\d.]+)"/g, mm2;
-        while ((mm2 = re2.exec(svg))) {
-          var rr = parseFloat(mm2[1]), ww = parseFloat(mm2[2]);
-          if (rr - ww / 2 < 0 || rr + ww / 2 > 200) outOfBox.push(r.label);
-        }
-      });
-      g.ok(outOfBox.length === 0,
-           'every grade 6 class draws inside the box at the pinned factor',
-           outOfBox.length ? outOfBox.join(', ') : 'all inside', 'all inside');
-
-      // A grade sweep must not send the factor wandering either, and the extreme
-      // U6 case must still be drawn the right way round.
-      var u6 = ISO286.limits(3, 'U6');
-      var eU6 = Viz.clampExaggeration(3, pinM6, u6, refAt3);
-      g.ok(eU6 === refAt3,
-           'even U6, the most offset grade 6 class at 3 mm, needs no reduction',
-           'x' + Math.round(eU6) + ' from x' + refAt3, 'unchanged');
-      var svgU6 = Viz.circleView({ basic: 3, pin: pinM6, hole: u6, exaggeration: eU6 });
-      g.ok(!/r="-/.test(svgU6), 'no negative radius is emitted for U6 at 3 mm',
-           /r="-/.test(svgU6) ? 'NEGATIVE' : 'all positive', 'all positive');
+      // A wildly overcranked factor must still produce a drawable figure.
+      var huge = Viz.circleView({ basic: 3, pin: pin3b,
+                                  hole: ISO286.limits(3, 'U6'), exaggeration: 100000 });
+      g.ok(!/r="-/.test(huge) && /<svg/.test(huge) && !/NaN/.test(huge),
+           'a 100000x factor still yields valid SVG',
+           /r="-/.test(huge) ? 'negative radius' : 'valid', 'valid');
 
       /* ------------------------------------------- circle-view geometry, checked
          against hand-computed values rather than eyeballed. At 3 mm with the

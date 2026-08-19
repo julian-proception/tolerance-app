@@ -28,13 +28,18 @@ var HoleOptions = (function () {
     return !!PREFERRED[holeLabel + '/' + pinLabel];
   }
 
-  /** Grades that have at least one hole letter defined at this size. */
+  /**
+   * Grades that have at least one hole letter defined at this size, in ISO order.
+   *
+   * Grades are TOKENS, not numbers: IT01 and IT1 both parse to the integer 1, so
+   * pulling the digits out of a label with a regex silently merges them.
+   */
   function gradesFor(size) {
     var seen = {};
     ISO286.availableClasses(size, 'hole').forEach(function (label) {
-      seen[parseInt(label.replace(/[^0-9]/g, ''), 10)] = true;
+      seen[ISO286.parseClass(label).grade] = true;
     });
-    return Object.keys(seen).map(Number).sort(function (a, b) { return a - b; });
+    return ISO286.GRADES.filter(function (g) { return seen[g]; });
   }
 
   /**
@@ -49,7 +54,7 @@ var HoleOptions = (function () {
   function forGrade(size, grade, pin) {
     var rows = ISO286.availableClasses(size, 'hole')
       .filter(function (label) {
-        return parseInt(label.replace(/[^0-9]/g, ''), 10) === grade;
+        return ISO286.parseClass(label).grade === String(grade);
       })
       .map(function (label) {
         var hole = ISO286.limits(size, label);
@@ -85,12 +90,25 @@ var HoleOptions = (function () {
    * most offset letter to the IT width grows with size (u is 2.8x IT7 at 3 mm but
    * 4.7x at 120 mm), so a single ratio holds at one size and clamps at another.
    */
+  /*
+   * Letters the drawing scale is sized for: f through u, the span in which
+   * ordinary fits live. Deliberately NOT every letter -- the catalogue runs from
+   * a to zc, and an a7 hole sits 270 um off basic at 3 mm, which would shrink the
+   * scale by a factor of ten and leave every normal fit an invisible hairline.
+   * Classes outside this span simply overflow and raise the alert, which is the
+   * behaviour asked for: report it, let the user decide.
+   */
+  var SCALE_SPAN = ['f', 'fg', 'g', 'h', 'j', 'js', 'k', 'm', 'n', 'p', 'r',
+                    's', 't', 'u'];
+
   function precisionExtremes(size) {
     var lo = 0, hi = 0;
-    [5, 6, 7].forEach(function (grade) {
+    ['5', '6', '7'].forEach(function (grade) {
       ['shaft', 'hole'].forEach(function (kind) {
         ISO286.availableClasses(size, kind).forEach(function (label) {
-          if (parseInt(label.replace(/[^0-9]/g, ''), 10) !== grade) return;
+          var pc = ISO286.parseClass(label);
+          if (SCALE_SPAN.indexOf(pc.letter.toLowerCase()) < 0) return;
+          if (pc.grade !== grade) return;
           var d = ISO286.deviations(size, label);
           if (d.lower < lo) lo = d.lower;
           if (d.upper > hi) hi = d.upper;
