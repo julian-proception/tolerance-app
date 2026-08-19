@@ -59,8 +59,17 @@ var Viz = (function () {
     return { values: out, step: step, dp: tickDecimals(step) };
   }
 
-  /** Annulus drawn as a stroked circle -- avoids fill-rule subtleties. */
+  /**
+   * Annulus drawn as a stroked circle -- avoids fill-rule subtleties.
+   *
+   * Radii are guarded at zero because the factor is no longer clamped: a band far
+   * enough below basic size can compute a negative radius, and SVG treats that as
+   * an error and draws nothing at all. Clipping to the centre keeps the visible
+   * part honest while the overflow alert explains the rest.
+   */
   function ring(cx, cy, rIn, rOut, fill) {
+    if (rOut <= 0) return '';
+    if (rIn < 0) rIn = 0;
     var w = rOut - rIn;
     if (w <= 0.01) return '';
     var r = (rIn + rOut) / 2;
@@ -111,12 +120,11 @@ var Viz = (function () {
   /**
    * Largest factor that still draws inside the box for these particular classes.
    *
-   * A pinned factor cannot be applied unconditionally: at 3 mm a U6 hole sits
-   * 24 um below basic, and at high exaggeration that pushes the inner radius past
-   * the centre and the circle turns inside out. So the pinned factor is used as-is
-   * whenever it fits -- which is the whole normal working range -- and is reduced
-   * only where geometry forces it. The label always reports the factor actually
-   * used, so a reduction is visible rather than silent.
+   * This is ADVICE, not a constraint. It is never applied to the drawing: doing
+   * that made the scale shift whenever a slider moved a band far enough off
+   * basic, which is exactly what the pinned factor exists to prevent. Instead the
+   * drawing keeps the factor it was given, and this value is what the overflow
+   * alert offers as a one-click correction.
    */
   function clampExaggeration(basic, pin, hole, E) {
     var devs = [0];
@@ -132,6 +140,33 @@ var Viz = (function () {
       limit = Math.min(limit, (R_MAX - R0) * 2000 / (pxPerMmTrue * hi));
     }
     return Math.max(1, limit);
+  }
+
+  /**
+   * Does the drawing run outside the canvas at this factor?
+   *
+   * With no clamp in the render path the bands can legitimately overflow -- that
+   * is the user's call to make, since only they can judge whether the bands are
+   * readable. So overflow is reported rather than prevented, and `suggested`
+   * carries the largest factor that would fit so the alert can offer it.
+   */
+  function circleOverflow(basic, pin, hole, E) {
+    var devs = [0];
+    if (pin) devs.push(pin.upper, pin.lower);
+    if (hole) devs.push(hole.upper, hole.lower);
+    var lo = Math.min.apply(null, devs), hi = Math.max.apply(null, devs);
+    var pxPerMmTrue = R0 / (basic / 2);
+    var rIn = R0 + pxPerMmTrue * E * (lo / 2000);
+    var rOut = R0 + pxPerMmTrue * E * (hi / 2000);
+    var suggested = clampExaggeration(basic, pin, hole, E);
+    return {
+      inward: rIn < R_MIN,
+      outward: rOut > R_MAX,
+      // Kept consistent with `suggested` by construction: the alert shows exactly
+      // when a smaller factor would be needed to fit.
+      over: suggested < E - 1e-9,
+      suggested: suggested
+    };
   }
 
   /**
@@ -171,11 +206,13 @@ var Viz = (function () {
     }
 
     if (hole) {
-      s += '<circle cx="' + cx + '" cy="' + cy + '" r="' + rp((hole.upper + hole.lower) / 2).toFixed(2) +
+      var rh = Math.max(0, rp((hole.upper + hole.lower) / 2));
+      s += '<circle cx="' + cx + '" cy="' + cy + '" r="' + rh.toFixed(2) +
            '" fill="none" stroke="' + C.holeDark + '" stroke-width="2.2"/>';
     }
     if (pin) {
-      s += '<circle cx="' + cx + '" cy="' + cy + '" r="' + rp((pin.upper + pin.lower) / 2).toFixed(2) +
+      var rpn = Math.max(0, rp((pin.upper + pin.lower) / 2));
+      s += '<circle cx="' + cx + '" cy="' + cy + '" r="' + rpn.toFixed(2) +
            '" fill="none" stroke="' + C.pinDark + '" stroke-width="2.2"/>';
     }
 
@@ -402,6 +439,7 @@ var Viz = (function () {
     bellCurve: bellCurve,
     pinnedExaggeration: pinnedExaggeration,
     clampExaggeration: clampExaggeration,
+    circleOverflow: circleOverflow,
     fmt: fmt,
     signed: signed,
     COLORS: C

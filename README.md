@@ -62,15 +62,18 @@ custom deviations, the RSS controls and hostile input).
 **Interference is `pin size − hole size`** throughout — positive means the pin is
 larger than the hole. Nothing in the app deviates from that convention.
 
-**The drawing scale is pinned, not adaptive.** The circle view exaggerates the
+**The drawing scale is pinned, never adaptive.** The circle view exaggerates the
 tolerance bands — at 3 mm a ±3 µm band is 0.1% of the diameter and would otherwise
-be a hairline — and the factor is stated on the drawing. It is derived from the
-**diameter alone**, by scaling to the widest deviations reachable in IT5–IT7, so
-that moving either hole slider changes the picture only in the way it should: the
-bands move and resize against a fixed scale, rather than the whole drawing
-rescaling under the cursor. Beyond IT7 no single scale can stay fixed and stay
-legible — an A12 hole sits over 500 µm off basic — so there the factor is reduced
-just enough to keep the drawing on the canvas, and the label reports it.
+be a hairline — and the factor is stated on the drawing. It depends on the
+**diameter and your own slider, and on nothing else**. Moving either hole slider
+changes the picture only in the way it should: the bands move and resize against a
+fixed scale, rather than the drawing rescaling under the cursor.
+
+Nothing reduces the factor automatically, not even to keep an extreme class on the
+canvas — that would put the rescaling straight back. If the bands run outside the
+view (an A12 hole sits over 500 µm off basic), the visualisation says so and offers
+a factor that fits; taking it is your call. Whether a band is too narrow to read is
+a judgement only you can make, so the tool leaves it to you.
 
 **The bell curve is a model.** It assumes both dimensions are independent, normal
 and centred, with the tolerance limits at ±3σ (adjustable). Real machining often

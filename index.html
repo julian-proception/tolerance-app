@@ -117,7 +117,13 @@
         </span>
       </h2>
 
-      <div class="viz-host" id="vizHost"></div>
+      <div class="viz-wrap">
+        <div class="viz-alert" id="vizAlert" hidden role="status">
+          <span id="vizAlertMsg"></span>
+          <button type="button" id="vizFit">fit</button>
+        </div>
+        <div class="viz-host" id="vizHost"></div>
+      </div>
 
       <div class="viz-foot" id="vizFoot">
         <label for="exag">Exaggeration</label>

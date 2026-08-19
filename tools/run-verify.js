@@ -276,6 +276,62 @@ var result = VerifyRun.run();
         bad.length ? bad.join(', ') : 'all ' + (gmax + 1) + ' grades clean', 'clean');
   });
 
+  // 4b. the drawing factor must not move for ANY grade, coarse ones included --
+  //     this is the property the whole pinned-factor design exists to provide,
+  //     and only the real render path can demonstrate it.
+  attempt('holding the factor across every grade', function () {
+    var gmax = parseInt(els.gradeSlider.max, 10), seen = {}, order = [];
+    for (var i = 0; i <= gmax; i++) {
+      els.gradeSlider.value = String(i);
+      fire('gradeSlider', 'input');
+      var e = txt('exagOut');
+      if (!seen[e]) { seen[e] = 0; order.push(e); }
+      seen[e]++;
+    }
+    iok(order.length === 1,
+        'exaggeration is identical across all ' + (gmax + 1) + ' grades',
+        order.join(', '), 'a single value');
+  });
+
+  var exagAcrossGrades = txt('exagOut');
+
+  // 4c. overflow must be reported, not silently corrected
+  attempt('the overflow alert', function () {
+    var gmax = parseInt(els.gradeSlider.max, 10);
+    // Coarse grades push the bands well outside a precision-scaled drawing.
+    els.gradeSlider.value = String(gmax);
+    fire('gradeSlider', 'input');
+    els.posSlider.value = String(parseInt(els.posSlider.max, 10));
+    fire('posSlider', 'input');
+    var overflowing = els.vizAlert.hidden === false;
+    iok(overflowing, 'the alert appears when the bands run outside the view',
+        overflowing ? 'shown' : 'hidden', 'shown');
+    iok(/exaggeration to ×\d+/.test(txt('vizAlertMsg')),
+        'the alert names a factor that would fit',
+        txt('vizAlertMsg') || 'empty', 'names a factor');
+    var before = txt('exagOut');
+    iok(before === exagAcrossGrades,
+        'the factor was NOT quietly reduced to make it fit',
+        before + ' vs ' + exagAcrossGrades, 'unchanged');
+
+    // The fit button is the correction, and it is the user's to press.
+    fire('vizFit', 'click');
+    iok(els.vizAlert.hidden === true, 'pressing fit clears the alert',
+        els.vizAlert.hidden ? 'cleared' : 'still shown', 'cleared');
+    iok(txt('exagOut') !== before, 'pressing fit changes the factor',
+        before + ' -> ' + txt('exagOut'), 'changed');
+    iok(!/NaN/.test(html_('vizHost')), 'the drawing is clean after fitting',
+        'clean', 'clean');
+
+    // Back to a precision grade; the alert must go away on its own.
+    els.gradeSlider.value = '1';
+    fire('gradeSlider', 'input');
+    els.exag.value = '50';
+    fire('exag', 'input');
+    iok(els.vizAlert.hidden === true, 'the alert clears again at a precision grade',
+        els.vizAlert.hidden ? 'hidden' : 'still shown', 'hidden');
+  });
+
   // 5. the visualisation toggle
   attempt('toggling the visualisation', function () {
     fire('vizZone', 'click');
