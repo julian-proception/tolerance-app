@@ -149,6 +149,12 @@ body {
   padding: 1px 6px; border-radius: 20px;
   background: var(--accent); color: var(--panel);
 }
+/* Marks a value that came from an ISO formula rather than a corroborated table. */
+.derived {
+  font-size: 9.5px; font-weight: 700; letter-spacing: 0.05em;
+  padding: 1px 6px; border-radius: 20px; cursor: help;
+  background: var(--tra-bg); color: var(--tra); border: 1px solid var(--tra);
+}
 
 /* ----------------------------------------------------------------- controls */
 

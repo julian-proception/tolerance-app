@@ -18,6 +18,25 @@ taken instead: encode the widely published numeric deviation values, derive
 everything derivable via the documented rules, and prove the result against a
 spot-check fixture drawn from several independent sources.
 
+**ISO 286-1:2010 itself is now a direct source for two things.** Its Table 1 (the
+standard tolerance grades) was read and used to check every IT value this tool
+ships — all of IT1–IT13 matched at all thirteen size ranges — and to supply IT01,
+IT0 and IT14–IT18. Its five worked examples are encoded as fixtures, and they are
+the strongest checks in the suite because the standard states both the inputs and
+the answers:
+
+| Example | Expected | Exercises |
+|---|---|---|
+| 90 F7 | +71 / +36 µm | hole, clearance side |
+| 90 f7 | −36 / −71 µm | shaft, clearance side |
+| 28 P9 | −22 / −74 µm | P above IT7, so **no** Δ |
+| 20 K7 | +6 / −15 µm | Δ = IT7 − IT6 = 8 |
+| 40 U6 | −55 / −71 µm | Δ = 5, and confirms the `u` column |
+
+The Δ rule is quoted verbatim in the standard as applying to *"K, M and N for
+standard tolerance grades up to and including IT8 and P to ZC up to and including
+IT7"* — which is exactly what `deltaFor` implements, now including ZA/ZB/ZC.
+
 ## Corroborating sources actually consulted
 
 | Source | Used for |
@@ -66,12 +85,59 @@ testing; both cases are now asserted.
 this — JS6 at 6–10 mm is ±4.5, not ±4. Rounding down would report every odd-IT
 symmetric class as 1 µm tighter than it is. Also caught in testing.
 
+## Coverage: all 28 identifiers and all 20 grades
+
+The catalogue matches the full ISO set — letters **a, b, c, cd, d, e, ef, f, fg,
+g, h, j, js, k, m, n, p, r, s, t, u, v, x, y, z, za, zb, zc** and grades **IT01,
+IT0, IT1 … IT18**. I, L, O, Q and W are absent because ISO does not use them: they
+are too easily confused with digits or other drawing symbols.
+
+Grades are handled as **string tokens**, not integers, because `IT01` and `IT1`
+both parse to the integer 1. Anything that pulls digits out of a class label with
+a regex silently merges those two grades.
+
+### Which values are transcribed and which are derived
+
+Values from a formula rather than a corroborated table column are **flagged
+`derived` in the UI**, so the distinction is visible at the point of use rather
+than buried here.
+
+- **cd, ef, fg** — ISO defines these as the geometric mean of their two
+  neighbours (c·d, e·f, f·g). That is an *interpolation*: the result cannot fall
+  outside the pair it sits between, so it is safe at every size. Rounding may
+  differ from ISO's tabulated value by about 1 µm.
+- **v, x, y, z, za, zb, zc** — computed from ISO 286-1's formulae,
+  `ei = IT(n) + k·D`, with D the geometric mean of the size range:
+  v = IT7 + 1.25D, x = IT7 + 1.6D, y = IT7 + 2D, z = IT7 + 2.5D,
+  za = IT8 + 3.15D, zb = IT9 + 4D, zc = IT10 + 5D.
+
+### ⚠️ Why the extended letters stop at 18 mm
+
+These formulae are *extrapolations* past the tabulated letters, so they are only
+trustworthy where they reproduce values that can be checked. Tested against `u`,
+whose column is tabulated and is independently confirmed by the standard's own
+`40 U6` example:
+
+| range | IT7 + D | published `u` | error |
+|---|---|---|---|
+| ≤3 mm | 11.7 | 18 | **−6.3** |
+| 6–10 mm | 22.7 | 28 | **−5.3** |
+| 18–24 mm | 41.8 | 41 | −0.8 |
+| 24–30 mm | 47.8 | 48 | +0.2 |
+| 50–65 mm | 87.0 | 87 | 0.0 |
+
+Exact from 18 mm up; 5–6 µm low below it. At 3 mm that error would place `x`
+*below* `u`, inverting the order of the letters and breaking the position slider.
+So **v, x, y, z, za, zb and zc are rejected at or below 18 mm** with an explanatory
+message, rather than shipping numbers that are wrong in a way that compounds. If
+you have the tabulated values for those ranges, they can be encoded directly and
+the restriction lifted.
+
 ## Deliberate omissions
 
 - **Shaft j8** — its column could not be corroborated, so `j8` is rejected rather
   than guessed. `j5`, `j6`, `j7` are supported.
-- **Letters cd, ef, fg and v–zc** — rare, and they need additional sub-range data.
-- **Sizes above 500 mm** and IT14–IT18.
+- **Sizes above 500 mm.**
 - **ANSI/inch fit classes** (RC/LC/FN).
 
 ## Sub-range warning

@@ -24,7 +24,7 @@ State lives in the URL hash, so a fit can be bookmarked or shared:
 
 ## Verifying it
 
-The tolerance data is the whole value of this tool, so it ships with 231 checks
+The tolerance data is the whole value of this tool, so it ships with 296 checks
 against published values.
 
 ```sh
@@ -80,6 +80,12 @@ and centred, with the tolerance limits at ±3σ (adjustable). Real machining oft
 runs offset or skewed, so the percentages estimate process capability rather than
 guarantee it. The worst-case limits are what the drawing has to survive.
 
-Coverage is 1–500 mm, hole classes A–U and shaft a–u, grades IT5–IT11. See
-`REFERENCES.md` for omissions and for the one rule that is applied rather than
-corroborated (Δ = 0 below 3 mm, which affects K/M/N/P only).
+Coverage is 1–500 mm with the **complete ISO 286 catalogue**: all 28 fundamental
+deviations (a…zc, and A…ZC) and all 20 grades (IT01, IT0, IT1…IT18).
+
+Not every value carries the same weight of evidence, so the ones computed from an
+ISO formula rather than transcribed from a corroborated table are **flagged
+`derived` in the interface**. The extended letters v, x, y, z, za, zb and zc are
+additionally **refused at or below 18 mm**, where the formula is known to
+disagree with the tabulated letters by enough to invert their order.
+`REFERENCES.md` sets out exactly which values rest on which source.

@@ -168,6 +168,86 @@ var VerifyRun = (function () {
     g.ok(Fits.classify(0, 0) === 'interference', 'zero width at zero',
          Fits.classify(0, 0), 'interference');
 
+    /* ------------------------------------------------ catalogue completeness */
+    g = group('Catalogue completeness');
+    g.ok(ISO286.LETTERS.length === 28, 'all 28 ISO fundamental deviations exist',
+         ISO286.LETTERS.length + ' letters', '28');
+    g.ok(ISO286.GRADES.length === 20, 'all 20 ISO standard tolerance grades exist',
+         ISO286.GRADES.length + ' grades', '20');
+    g.ok(ISO286.GRADES[0] === '01' && ISO286.GRADES[1] === '0' &&
+         ISO286.GRADES[19] === '18',
+         'the grade series runs IT01, IT0, IT1 ... IT18',
+         ISO286.GRADES.slice(0, 3).join(',') + ' ... ' + ISO286.GRADES[19],
+         '01,0,1 ... 18');
+    // I, L, O, Q and W are deliberately absent from ISO 286.
+    var forbidden = ['i', 'l', 'o', 'q', 'w'].filter(function (l) {
+      return ISO286.LETTERS.indexOf(l) >= 0;
+    });
+    g.ok(forbidden.length === 0, 'the ambiguous identifiers I L O Q W are absent',
+         forbidden.length ? forbidden.join(',') : 'absent', 'absent');
+    var at25 = ISO286.letters(25, 'hole');
+    g.ok(at25.length === 28, 'all 28 identifiers are offered at 25 mm',
+         at25.length + ': ' + at25.join(' '), '28');
+    g.ok(ISO286.gradesForLetter(25, 'H').length === 20,
+         'hole H offers all 20 grades at 25 mm',
+         ISO286.gradesForLetter(25, 'H').length + ' grades', '20');
+
+    // IT01 and IT1 must not collide: they parse to the same integer.
+    var it01 = ISO286.itValue(25, '01'), it1 = ISO286.itValue(25, '1');
+    g.ok(it01 !== it1 && it01 === 0.6 && it1 === 1.5,
+         'IT01 and IT1 are distinct grades, not the same integer',
+         'IT01=' + it01 + ', IT1=' + it1, 'IT01=0.6, IT1=1.5');
+    g.ok(ISO286.parseClass('h01').grade === '01' &&
+         ISO286.parseClass('h1').grade === '1' &&
+         ISO286.parseClass('h0').grade === '0',
+         'h01, h0 and h1 parse to three different grades',
+         [ISO286.parseClass('h01').grade, ISO286.parseClass('h0').grade,
+          ISO286.parseClass('h1').grade].join(','), '01,0,1');
+
+    // Every grade must widen monotonically -- a coarser grade cannot be tighter.
+    var widthBad = [];
+    [3, 25, 500].forEach(function (size) {
+      var prev = -1;
+      ISO286.GRADES.forEach(function (gr) {
+        var w = ISO286.itValue(size, gr);
+        if (w < prev - 1e-9) widthBad.push('IT' + gr + '@' + size);
+        prev = w;
+      });
+    });
+    g.ok(widthBad.length === 0, 'IT values increase monotonically across all 20 grades',
+         widthBad.length ? widthBad.join(', ') : 'monotonic', 'monotonic');
+
+    // The derived values must be flagged, and the transcribed ones must not be.
+    var flagged = ['x6', 'z6', 'za6', 'zc6', 'v6', 'y6'].every(function (c) {
+      return ISO286.limits(25, c).derived === true;
+    });
+    g.ok(flagged, 'the formula-derived letters are flagged as derived',
+         flagged ? 'all flagged' : 'NOT FLAGGED', 'all flagged');
+    var plain = ['h6', 'm6', 'JS6', 'H7', 'u6', 's6', 'p6'].every(function (c) {
+      return !ISO286.limits(25, c).derived;
+    });
+    g.ok(plain, 'the transcribed letters are not flagged',
+         plain ? 'none flagged' : 'WRONGLY FLAGGED', 'none flagged');
+    g.ok(ISO286.limits(3, 'cd9').derived === true,
+         'the geometric-mean letters are flagged too',
+         'flagged', 'flagged');
+
+    // The full 28-letter axis must still be ordered by nominal diameter, or the
+    // position slider stops meaning anything.
+    var full = HoleOptions.forGrade(25, '6', ISO286.limits(25, 'h6'));
+    g.ok(full.length === 28, 'the position axis carries all 28 letters at 25 mm IT6',
+         full.length + ' classes', '28');
+    var ord = true;
+    for (var fi = 1; fi < full.length; fi++) {
+      if (full[fi].hole.mean < full[fi - 1].hole.mean - 1e-12) ord = false;
+    }
+    g.ok(ord, 'the 28-letter axis is monotonic in nominal diameter',
+         full[0].label + ' ' + full[0].hole.mean.toFixed(4) + ' -> ' +
+           full[27].label + ' ' + full[27].hole.mean.toFixed(4), 'ascending');
+    g.ok(full[0].label === 'ZC6' && full[27].label === 'A6',
+         'the axis runs from the heaviest interference to the loosest clearance',
+         full[0].label + ' ... ' + full[27].label, 'ZC6 ... A6');
+
     /* ------------------------------------------------- the two hole axes */
     g = group('Hole selection axes');
     var pinM6 = ISO286.limits(3, 'm6');
@@ -251,9 +331,10 @@ var VerifyRun = (function () {
          'indexOf reports -1 for a class not on the axis', '-1', '-1');
 
     var grades3 = HoleOptions.gradesFor(3);
-    var sortedG = grades3.slice().sort(function (a, b) { return a - b; });
-    g.ok(grades3.join() === sortedG.join() && grades3.length > 2,
-         'gradesFor returns ascending grades', grades3.join(' '), 'ascending');
+    var isoOrder = ISO286.GRADES.filter(function (x) { return grades3.indexOf(x) >= 0; });
+    g.ok(grades3.join() === isoOrder.join() && grades3.length > 2,
+         'gradesFor returns grades in ISO order (IT01, IT0, IT1 ...)',
+         grades3.join(' '), 'ISO order');
 
     // A 25 mm h6 pin must be able to reach all three categories somewhere.
     var reach = {};

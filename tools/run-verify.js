@@ -231,11 +231,23 @@ var result = VerifyRun.run();
         Object.keys(reachable).join(', '), 'all three');
     // And when one is out of reach at the current grade, the UI must say so
     // rather than leaving the user hunting along a slider.
+    /*
+     * With the full letter catalogue nearly every category is reachable at every
+     * grade, so the hint rarely fires. What must hold is that it is CORRECT: shown
+     * only when a category really is missing, hidden only when all three exist.
+     */
     var hintShown = els.holeHint && els.holeHint.hidden === false;
     var hintText = (els.holeHint || {}).textContent || '';
-    iok(hintShown && /clearance/.test(hintText) && /grade/.test(hintText),
-        'the UI names the category that is unreachable at this grade',
-        hintShown ? hintText : 'hint hidden', 'names clearance and the grade');
+    var reachHere = {};
+    HoleOptions.forGrade(25, '6', ISO286.limits(25, 'm6')).forEach(function (r2) {
+      reachHere[r2.fit] = true;
+    });
+    var allThree = reachHere.interference && reachHere.transition && reachHere.clearance;
+    iok(hintShown === !allThree,
+        'the unreachable-category hint agrees with what the axis actually offers',
+        (hintShown ? 'shown: ' + hintText : 'hidden') +
+          ' / axis has ' + Object.keys(reachHere).sort().join('+'),
+        allThree ? 'hidden' : 'shown');
   });
 
   // 3. change grade; the position must be held near the same nominal diameter
@@ -323,13 +335,23 @@ var result = VerifyRun.run();
     iok(!/NaN/.test(html_('vizHost')), 'the drawing is clean after fitting',
         'clean', 'clean');
 
-    // Back to a precision grade; the alert must go away on its own.
-    els.gradeSlider.value = '1';
+    // Back to an ordinary fit; the alert must go away on its own. Select IT6 by
+    // NAME rather than by slider index -- with IT01 and IT0 now at the head of the
+    // list, index 1 is IT0, which is not what this is testing.
+    var gi6 = HoleOptions.gradesFor(25).indexOf('6');
+    iok(gi6 >= 0, 'IT6 is on the grade axis at 25 mm', 'index ' + gi6, 'present');
+    els.gradeSlider.value = String(gi6);
     fire('gradeSlider', 'input');
+    var mid = Math.floor(parseInt(els.posSlider.max, 10) / 2);
+    els.posSlider.value = String(mid);
+    fire('posSlider', 'input');
     els.exag.value = '50';
     fire('exag', 'input');
-    iok(els.vizAlert.hidden === true, 'the alert clears again at a precision grade',
-        els.vizAlert.hidden ? 'hidden' : 'still shown', 'hidden');
+    iok(txt('gradeOut') === 'IT6', 'the grade axis really is back at IT6',
+        txt('gradeOut'), 'IT6');
+    iok(els.vizAlert.hidden === true, 'the alert clears again at an ordinary fit',
+        els.vizAlert.hidden ? 'hidden' : 'still shown at ' + txt('holeLabel'),
+        'hidden');
   });
 
   // 5. the visualisation toggle

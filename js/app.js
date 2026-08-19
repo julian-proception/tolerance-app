@@ -14,9 +14,9 @@
 
   var state = {
     dia: 3,
-    pinLetter: 'm', pinGrade: 6,
+    pinLetter: 'm', pinGrade: '6',
     useCustom: false, customUpper: 8, customLower: 2,
-    holeLetter: 'JS', holeGrade: 6,
+    holeLetter: 'JS', holeGrade: '6',
     vizMode: 'dia',
     k: 3, shift: 0, target: 0, exagSlider: 50,
     exagRef: null, exagBasis: null   // pinned factor and the diameter it belongs to
@@ -103,7 +103,7 @@
         (l === state.pinLetter ? ' selected' : '') + '>' + l + '</option>';
     }).join('');
 
-    var grades = ISO286.gradesForLetter(state.dia, state.pinLetter, 'shaft');
+    var grades = ISO286.gradesForLetter(state.dia, state.pinLetter);
     if (grades.indexOf(state.pinGrade) < 0) state.pinGrade = grades[Math.floor(grades.length / 2)];
     $('pinGrade').innerHTML = grades.map(function (g) {
       return '<option value="' + g + '"' +
@@ -120,7 +120,8 @@
   function resolveHole(pin) {
     var grades = HoleOptions.gradesFor(state.dia);
     if (grades.indexOf(state.holeGrade) < 0) {
-      state.holeGrade = grades[Math.min(1, grades.length - 1)];
+      // Fall back to IT6 when the held grade is gone, not to the coarsest.
+      state.holeGrade = grades.indexOf('6') >= 0 ? '6' : grades[0];
     }
     var gi = grades.indexOf(state.holeGrade);
     $('gradeSlider').max = String(grades.length - 1);
@@ -235,6 +236,7 @@
 
     fillPinSelects();
     $('pinLabel').textContent = pin.label;
+    $('pinDerived').hidden = !pin.derived;
     $('pinReadout').innerHTML = readout(pin);
     $('pinMore').innerHTML = moreTable(pin);
 
@@ -251,6 +253,7 @@
     var hole = h.hole;
     $('holeLabel').textContent = hole.label;
     $('holePref').hidden = !h.row.preferred;
+    $('holeDerived').hidden = !hole.derived;
     $('holeReadout').innerHTML = readout(hole);
     $('holeMore').innerHTML = moreTable(hole);
 
@@ -373,7 +376,7 @@
       render();
     });
     $('pinGrade').addEventListener('change', function () {
-      state.pinGrade = parseInt($('pinGrade').value, 10);
+      state.pinGrade = $('pinGrade').value;
       render();
     });
 
