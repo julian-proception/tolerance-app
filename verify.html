@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Verification — ISO 286 fit calculator</title>
+<link rel="stylesheet" href="css/app.css">
+<style>
+  .res { font-family: var(--mono); font-size: 13px; border-collapse: collapse; width: 100%; }
+  .res td, .res th { padding: 5px 10px; border-bottom: 1px solid var(--rule-soft); text-align: left; }
+  .res th { color: var(--ink-faint); font-weight: 600; font-size: 11px;
+            text-transform: uppercase; letter-spacing: .05em; }
+  .ok   { color: var(--clearance); }
+  .bad  { color: var(--interference); font-weight: 700; }
+  .tally { font-size: 17px; font-weight: 650; padding: 14px 16px; border-radius: 9px;
+           margin-bottom: 18px; }
+  .tally.pass { background: var(--hole-band); border-left: 4px solid var(--hole-dark); }
+  .tally.fail { background: var(--pin-band); border-left: 4px solid var(--pin-dark); }
+  .src { color: var(--ink-faint); font-size: 11.5px; }
+</style>
+</head>
+<body>
+<header class="topbar"><div class="wrap">
+  <h1>Verification</h1>
+  <p class="tagline">Every fixture in <code>js/verify-cases.js</code> asserted against
+    the live data layer. <a href="index.html">Back to the calculator</a>.</p>
+</div></header>
+
+<main class="wrap">
+  <div id="tally" class="tally"></div>
+  <div id="out"></div>
+</main>
+
+<script src="js/iso286.js"></script>
+<script src="js/fits.js"></script>
+<script src="js/suggest.js"></script>
+<script src="js/viz.js"></script>
+<script src="js/verify-cases.js"></script>
+<script src="js/verify-run.js"></script>
+<script>
+(function () {
+  'use strict';
+  // Same suite that tools/verify.sh runs headlessly -- see js/verify-run.js.
+  var result = VerifyRun.run();
+
+  function esc(v) {
+    return String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+
+  var html = '';
+  result.groups.forEach(function (gr) {
+    var bad = gr.rows.filter(function (r) { return !r.ok; }).length;
+    html += '<section class="panel"><h2>' + esc(gr.name) + ' \u2014 ' +
+      (bad ? '<span class="bad">' + bad + ' failed</span>'
+           : '<span class="ok">' + gr.rows.length + ' passed</span>') + '</h2>';
+    html += '<table class="res"><thead><tr><th></th><th>Check</th><th>Got</th>' +
+            '<th>Expected</th><th>Source</th></tr></thead><tbody>';
+    gr.rows.forEach(function (r) {
+      html += '<tr><td class="' + (r.ok ? 'ok' : 'bad') + '">' + (r.ok ? '\u2713' : '\u2717') +
+        '</td><td>' + esc(r.what) + '</td><td>' + esc(r.got) + '</td><td>' + esc(r.want) +
+        '</td><td class="src">' + esc(r.src) + '</td></tr>';
+    });
+    html += '</tbody></table></section>';
+  });
+  document.getElementById('out').innerHTML = html;
+
+  var t = document.getElementById('tally');
+  t.className = 'tally ' + (result.fail ? 'fail' : 'pass');
+  t.textContent = result.fail
+    ? result.fail + ' of ' + (result.pass + result.fail) + ' checks FAILED'
+    : 'All ' + result.pass + ' checks passed';
+  document.title = (result.fail ? '\u2717 ' + result.fail + ' failed'
+                                : '\u2713 ' + result.pass + ' passed') + ' \u2014 verification';
+})();
+</script>
+</body>
+</html>
